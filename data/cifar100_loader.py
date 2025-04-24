@@ -26,6 +26,9 @@ def get_cifar100(train=True, download=True): # https://dev.to/hyperkai/cifar100-
 
     return CIFAR100(root='./data', train=train, download=download, transform=transform) # NOTE: if download=True the entire (train + test) dataset is downloaded locally
 
+def prova():
+    print("ciao")
+
 def split_train_val(dataset, val_ratio=0.2):
     '''This function: TRAIN -> train + val'''
     return random_split(dataset, [1-val_ratio, val_ratio]) # returns [train,val]
