@@ -100,7 +100,7 @@ def create_iid_splits(dataset: Dataset, num_clients: int = 100):
     return dict_users
 
 
-def create_non_iid_splits(dataset: Dataset,
+def create_non_iid_splits(dataset: Dataset,  
                           num_clients: int = 100,
                           classes_per_client: int = 10,
                           random_state: int = 42,
@@ -109,7 +109,8 @@ def create_non_iid_splits(dataset: Dataset,
     """
     Create non-IID splits by assigning `classes_per_client` shards to each client.
     Works with Dataset, Subset, or TransformedSubset.
-    Returns list of Subset objects (one per client).
+
+    Returns: list of Subset objects (one per client).
     """
     # Unwrap Subset/TransformedSubset to get base indices & targets
     # .indices -> get the original indices from the dataset
@@ -180,6 +181,15 @@ def create_non_iid_splits(dataset: Dataset,
         rng = np.random.default_rng(random_state + c_id) # the shuffle is deterministic knowing the random state. The shuffle will be different for each client
         rng.shuffle(arr)
         clients_data_indices[c_id] = arr    # Assign the shuffled indices to the current client (c_id)
+    
+    if debug:
+        print(f'\nChecking unique classes that each client sees:')
+        idx_to_lbl = {idx: lbl for lbl, indices in indices_by_label.items() for idx in indices}
+        client_unique_classes = [(i, set([idx_to_lbl[idx] for idx in clients_data_indices[i]])) for i in range(num_clients)]
+        for item in client_unique_classes:
+            print(f"Client {item[0]} has samples from classes: {item[1]}")
+
+
 
     # Build final Subsets
     client_datasets = []
