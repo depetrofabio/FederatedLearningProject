@@ -138,7 +138,10 @@ def create_non_iid_splits(dataset: Dataset,
     if num_clients * classes_per_client < num_classes:
         raise ValueError("num_clients * classes_per_client is too low, some classes would not be utilised ")
     if (num_clients * classes_per_client) % num_classes !=0:
-        print(f"ATT! num_clients * classes_per_client is not a multiple of num_classes. \n>> This scenario is not implemented yet.\n>> num_clients: {num_clients} = v, num_classes: {num_classes} = c, classes_per_client: {classes_per_client} = r\n>> For this function to work properly we need (v*r) % c = 0\n>> s = (v*r)/c  <--> s*c = v*r , where s is the number of shards we need to split each class into.\n>> With this approach s must be an integer.")
+        print(f"ATT! num_clients * classes_per_client is not a multiple of num_classes. \n>> This scenario is not implemented yet.\n>> num_clients: {num_clients} = v, num_classes: {num_classes} = c, classes_per_client: {classes_per_client} = r\n>> For this function to work properly we need (v*r) % c = 0\n>> s = (v*r)/c  <--> s*c = v*r , where s is the number of shards we need to split each class into.\n>> With this approach s must be an integer.\nNo actions performed")
+        return None
+    if classes_per_client*num_clients > len(orig_indices):
+        print(f"The number of necessary shards is greater than the number of samples \nNo actions performed")
         return None
 
     if debug:
@@ -148,6 +151,15 @@ def create_non_iid_splits(dataset: Dataset,
     # Build shards per class
     indices_by_label = {lbl: orig_indices[targets == lbl] for lbl in unique_classes} # Each class is associated with the indices of its samples 
     shards_per_class = (num_clients * classes_per_client) // num_classes             # Calculate the number of shards each class must be spli into
+
+    # Check if the split is possible in a safe way (np.split() will work anyway but the result is unpredictable)
+    if min([len(indices_by_label[lbl]) for lbl in indices_by_label.keys()])<shards_per_class:
+        print(f"There is at least a class with not enough samples to perform a safe split into {shards_per_class} shards.")
+        user_choice = input("Do you want to continue? (y/n): ").lower()
+        if user_choice != 'y':
+            print('No actions performed')
+            return None
+        
     # Create a dictionary where classes are associated with a list of shards
     class_partitions = {
         lbl: np.array_split(indices_by_label[lbl], shards_per_class)
@@ -155,7 +167,7 @@ def create_non_iid_splits(dataset: Dataset,
     }
 
     if debug:
-        print(f"Each of the {num_classes} classes split into {shards_per_class} shards.")
+        print(f"\nEach of the {num_classes} classes split into {shards_per_class} shards.")
 
     availability = {lbl: shards_per_class for lbl in unique_classes} # initialize the shards availability count for each class
     clients_data_indices = {}                                        # this dictionary will contain the indices of the samples, divided by client
@@ -188,7 +200,12 @@ def create_non_iid_splits(dataset: Dataset,
         client_unique_classes = [(i, set([idx_to_lbl[idx] for idx in clients_data_indices[i]])) for i in range(num_clients)]
         for item in client_unique_classes:
             print(f"Client {item[0]} has samples from classes: {item[1]}")
+            xx = len(item[1])
+            if xx!=classes_per_client:
+                print(f'SOMETHING IS WRONG')
+            print(f"Total: {xx}")
 
+        print(f"\n")
 
 
     # Build final Subsets
