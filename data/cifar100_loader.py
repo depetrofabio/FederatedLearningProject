@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import heapq
 from google.colab import drive
+import warnings
 
 # CIFAR 100 contains 100 calsses. There are 500 images per class in the train set and 100 per class in the test set.
 # For a total of 600 images per class. So it has 50000 training examples and 10000 test examples.
@@ -82,22 +83,41 @@ def get_cifar100(valid_split_perc: float = 0.2,
         return train_sub, val_sub, test_raw
 
 
-def create_iid_splits(dataset: Dataset, num_clients: int = 100):
-    """
-    Split dataset IID into `num_clients` equal portions.
-    Returns dict: client_id -> set of indices.
-    """
-    N = len(dataset)
-    num_items = N // num_clients
-    all_idxs = np.arange(N)
-    dict_users = {}
+def create_iid_splits(dataset: Dataset, num_clients: int = 100, keep_transformations = True, debug=True):
+    # """
+    # Split dataset IID into `num_clients` equal portions.
+    # Returns dict: client_id -> set of indices.
+    # """
+    # N = len(dataset)
+    # num_items = N // num_clients
+    # all_idxs = np.arange(N)
+    # dict_users = {}
 
-    for i in range(num_clients):
-        chosen = np.random.choice(all_idxs, num_items, replace=False)
-        dict_users[i] = set(chosen)
-        all_idxs = np.setdiff1d(all_idxs, chosen, assume_unique=True)
+    # for i in range(num_clients):
+    #     chosen = np.random.choice(all_idxs, num_items, replace=False)
+    #     dict_users[i] = set(chosen)
+    #     all_idxs = np.setdiff1d(all_idxs, chosen, assume_unique=True)
 
-    return dict_users
+    if isinstance(dataset, TransformedSubset):
+        base = dataset.subset
+    elif isinstance(dataset, Subset):
+        base = dataset
+    else:
+        base = None
+
+    if base is not None:
+        orig_indices = np.array(base.indices)
+        targets = np.array(base.dataset.targets)[base.indices]
+    else:
+        orig_indices = np.arange(len(dataset))
+        targets = np.array(dataset.targets)
+
+    unique_classes = np.unique(targets) # Create an array of unique labels
+    num_classes = len(unique_classes)   # Number of classes
+
+    list_of_subsets = create_non_iid_splits(dataset=dataset, num_clients=num_clients, classes_per_client=num_classes, debug=debug, keep_transformations=keep_transformations)
+
+    return list_of_subsets
 
 
 def create_non_iid_splits(dataset: Dataset,  
@@ -146,13 +166,14 @@ def create_non_iid_splits(dataset: Dataset,
 
     if debug:
         print(f"Dataset has {len(targets)} samples across {num_classes} classes.")
-        print(f"Creating {num_clients} non-IID splits with {classes_per_client} classes each.\n")
+        print(f"Creating {num_clients} {'IID' if num_classes == classes_per_client else 'non IID'} splits with {classes_per_client} classes each.\n")
+
 
     # Build shards per class
     indices_by_label = {lbl: orig_indices[targets == lbl] for lbl in unique_classes} # Each class is associated with the indices of its samples 
     shards_per_class = (num_clients * classes_per_client) // num_classes             # Calculate the number of shards each class must be spli into
 
-    # Check if the split is possible in a safe way (np.split() will work anyway but the result is unpredictable)
+    # Check if the split is possible in a safe way (np.array_split() will work anyway but the result is unpredictable)
     if min([len(indices_by_label[lbl]) for lbl in indices_by_label.keys()])<shards_per_class:
         print(f"There is at least a class with not enough samples to perform a safe split into {shards_per_class} shards.")
         user_choice = input("Do you want to continue? (y/n): ").lower()
@@ -171,6 +192,15 @@ def create_non_iid_splits(dataset: Dataset,
 
     availability = {lbl: shards_per_class for lbl in unique_classes} # initialize the shards availability count for each class
     clients_data_indices = {}                                        # this dictionary will contain the indices of the samples, divided by client
+
+    # NOTE: np.array_split Behavior: 
+    # When you use np.array_split(array, N), and the length of the array is not perfectly divisible by N, NumPy tries to make the shards as equal in size as possible. 
+    # It does this by making the first len(array) % N shards one element larger than the remaining shards.
+    # Since the shards are assigned from the last to the first for each class, the last clients would receive more samples of all classes.
+    # For this reason we shuffle the shards before the assignement.
+    rng_shuffle = np.random.default_rng(random_state)
+    for lbl in unique_classes:
+        rng_shuffle.shuffle(class_partitions[lbl])
 
     # Assign shards to each client
     # Strategy: we take the necessary shard_per_class number of shards, for the given client, from the classes with higher availability
@@ -235,38 +265,6 @@ def create_non_iid_splits(dataset: Dataset,
         if keep_transformations:
             print(f"Client partitions created from {dataset}, passed as an argument to the function. All the transformations were mantained.")
         else:
-            print("Client partitions created from the root_dataset {}. No transformations applied to data were mantained.")
+            print(f"Client partitions created from the root_dataset. No transformations applied to data were mantained.")
 
     return client_datasets
-
-
-def plot_same_class(train_images, train_labels, test_images, test_labels, class_id, num_samples=5):
-    # Filtra immagini del training set con la classe specificata
-    train_class_mask = np.array(train_labels) == class_id
-    train_class_images = train_images[train_class_mask]
-    
-    # Filtra immagini del test set con la stessa classe
-    test_class_mask = np.array(test_labels) == class_id
-    test_class_images = test_images[test_class_mask]
-    
-    # Prendi un campione casuale
-    train_samples = train_class_images[np.random.choice(len(train_class_images), num_samples, replace=False)]
-    test_samples = test_class_images[np.random.choice(len(test_class_images), num_samples, replace=False)]
-    
-    # Plot
-    plt.figure(figsize=(15, 5))
-    plt.suptitle(f'Classe: {classes[class_id]}', fontsize=16)
-    
-    # Plot training set
-    plt.subplot(1, 2, 1)
-    plt.title("Training Set")
-    plt.imshow(np.hstack(train_samples))
-    plt.axis('off')
-    
-    # Plot test set
-    plt.subplot(1, 2, 2)
-    plt.title("Test Set")
-    plt.imshow(np.hstack(test_samples))
-    plt.axis('off')
-    
-    plt.show()
