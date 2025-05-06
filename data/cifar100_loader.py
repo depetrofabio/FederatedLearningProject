@@ -13,7 +13,7 @@ import warnings
 # The 100 classes (fine label) are actually grouped in 20 super-classes (coarse label) => every image has 2 labels: class,superclass.
 
 
-# the professor suggested to treat the validation as similar as possible the test set
+# The professor suggested to treat the validation as similar as possible the test set
 # this implies that we have to only apply the normalization step on them
 
 
