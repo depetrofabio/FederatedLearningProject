@@ -127,7 +127,8 @@ def create_non_iid_splits(dataset: Dataset,
                           keep_transformations: bool = True,
                           debug: bool = True):
     """
-    Create non-IID splits by assigning `classes_per_client` shards to each client.
+    Create non-IID splits by assigning to each client shards of data
+    from only classes_per_client classes.
     Works with Dataset, Subset, or TransformedSubset.
 
     Returns: list of Subset objects (one per client).
