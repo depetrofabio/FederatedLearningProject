@@ -2,10 +2,9 @@
 import torch
 import wandb
 
-def train_epoch(model, train_loader, optimizer, criterion, device):
-    model.backbone.eval()       # fix backbone stats
-    model.classifier.train()    # enable head training
-    
+def train_epoch(model, train_loader, optimizer, scheduler, criterion, device): # aggiungere scheduler 
+    # Attenzione: se scrivi model.train() here would undo block.eval() settings.
+
     train_loss = 0.0
     correct_train = 0
     total_train = 0
@@ -19,6 +18,7 @@ def train_epoch(model, train_loader, optimizer, criterion, device):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        scheduler.step()
 
         train_loss += loss.item() * images.size(0)
         _, predicted = torch.max(outputs, 1)
@@ -78,12 +78,12 @@ def log_to_wandb(epoch, train_loss, train_accuracy, val_loss, val_accuracy):
     }, step=epoch)
 
 # Funzione principale per l'allenamento e la validazione
-def train_and_validate(start_epoch, model, train_loader, val_loader, optimizer, criterion, device,  checkpoint_path, num_epochs, checkpoint_interval):
+def train_and_validate(start_epoch, model, train_loader, val_loader, scheduler, optimizer, criterion, device,  checkpoint_path, num_epochs, checkpoint_interval):
     #start_epoch = 1
 
     for epoch in range(start_epoch, num_epochs + 1):
         # Training
-        train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion, device)
+        train_loss, train_accuracy = train_epoch(model, train_loader, scheduler, optimizer, criterion, device)
 
         # Validation
         val_loss, val_accuracy = validate_epoch(model, val_loader, criterion, device)
