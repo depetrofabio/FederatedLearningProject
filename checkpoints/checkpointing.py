@@ -3,7 +3,7 @@ import torch
 
 
 # Load checkpoints
-def load_checkpoint(model, optimizer, checkpoint_dir, model_name = "dino_vits16"):
+def load_checkpoint(model, optimizer, checkpoint_path):
     """Loads a model checkpoint if it exists.
 
     Args:
@@ -18,9 +18,9 @@ def load_checkpoint(model, optimizer, checkpoint_dir, model_name = "dino_vits16"
     """
     
     # PATH to store/retrieve checkpoints
-    checkpoint_dir = "/content/drive/MyDrive/FL/FederatedLearningProject/checkpoints"
-    os.makedirs(checkpoint_dir, exist_ok=True)
-    checkpoint_path = os.path.join(checkpoint_dir, f"{model_name}_checkpoint.pth")
+    #checkpoint_dir = "/content/drive/MyDrive/FL/FederatedLearningProject/checkpoints"
+    #os.makedirs(checkpoint_dir, exist_ok=True)
+    #checkpoint_path = os.path.join(checkpoint_dir, f"{model_name}_checkpoint.pth")
 
     start_epoch = 1
     checkpoint_data = None

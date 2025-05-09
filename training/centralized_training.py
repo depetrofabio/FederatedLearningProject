@@ -2,7 +2,7 @@
 import torch
 import wandb
 
-def train_epoch(model, train_loader, optimizer, scheduler, criterion, device): # aggiungere scheduler 
+def train_epoch(model, train_loader, scheduler, optimizer, criterion, device): # aggiungere scheduler 
     # Attenzione: se scrivi model.train() here would undo block.eval() settings.
 
     train_loss = 0.0
@@ -83,13 +83,13 @@ def train_and_validate(start_epoch, model, train_loader, val_loader, scheduler, 
 
     for epoch in range(start_epoch, num_epochs + 1):
         # Training
-        train_loss, train_accuracy = train_epoch(model, train_loader, scheduler, optimizer, criterion, device)
+        train_loss, train_accuracy = train_epoch(model=model, train_loader=train_loader, scheduler=scheduler, optimizer=optimizer, criterion=criterion, device=device)
 
         # Validation
-        val_loss, val_accuracy = validate_epoch(model, val_loader, criterion, device)
+        val_loss, val_accuracy = validate_epoch(model=model, val_loader=val_loader, criterion=criterion, device=device)
 
         # Logging su W&B
-        log_to_wandb(epoch, train_loss, train_accuracy, val_loss, val_accuracy)
+        log_to_wandb(epoch, train_loss=train_loss, train_accuracy=train_accuracy, val_loss=val_loss, val_accuracy=val_accuracy)
 
         # Output
         print(f"[Epoch {epoch}] Train Loss: {train_loss:.4f}, Train Accuracy: {train_accuracy:.2f}%, Val Loss: {val_loss:.4f}, Val Accuracy: {val_accuracy:.2f}%")
