@@ -1,8 +1,10 @@
 # Funzione per eseguire il training di un'epoca
 import torch
 import wandb
+from FederatedLearningProject.checkpoints.checkpointing import save_checkpoint
 
-def train_epoch(model, train_loader, scheduler, optimizer, criterion, device): # aggiungere scheduler 
+
+def train_epoch(model, train_loader, optimizer, criterion, device): # aggiungere scheduler 
     # Attenzione: se scrivi model.train() here would undo block.eval() settings.
 
     train_loss = 0.0
@@ -18,7 +20,6 @@ def train_epoch(model, train_loader, scheduler, optimizer, criterion, device): #
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        scheduler.step()
 
         train_loss += loss.item() * images.size(0)
         _, predicted = torch.max(outputs, 1)
@@ -27,6 +28,7 @@ def train_epoch(model, train_loader, scheduler, optimizer, criterion, device): #
 
     train_accuracy = 100 * correct_train / total_train
     avg_train_loss = train_loss / total_train
+
     
     return avg_train_loss, train_accuracy
 
@@ -56,16 +58,6 @@ def validate_epoch(model, val_loader, criterion, device):
     
     return avg_val_loss, val_accuracy
 
-# Funzione per il salvataggio del checkpoint
-def save_checkpoint(epoch, model, optimizer, train_loss, val_loss, checkpoint_path):
-    torch.save({
-        "epoch": epoch,
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "train_loss": train_loss,
-        "val_loss": val_loss,
-    }, checkpoint_path)
-    print(f"Checkpoint salvato su: {checkpoint_path}")
 
 # Funzione per il logging su W&B
 def log_to_wandb(epoch, train_loss, train_accuracy, val_loss, val_accuracy):
@@ -84,6 +76,9 @@ def train_and_validate(start_epoch, model, train_loader, val_loader, scheduler, 
     for epoch in range(start_epoch, num_epochs + 1):
         # Training
         train_loss, train_accuracy = train_epoch(model=model, train_loader=train_loader, scheduler=scheduler, optimizer=optimizer, criterion=criterion, device=device)
+        # Scheduler step and debug
+        scheduler.step()
+        print(f"current LR: {scheduler.get_last_lr()}")
 
         # Validation
         val_loss, val_accuracy = validate_epoch(model=model, val_loader=val_loader, criterion=criterion, device=device)
@@ -96,6 +91,6 @@ def train_and_validate(start_epoch, model, train_loader, val_loader, scheduler, 
 
         # Salvataggio dei checkpoint
         if epoch % checkpoint_interval == 0:
-            save_checkpoint(epoch, model, optimizer, train_loss, val_loss, checkpoint_path)
+            save_checkpoint(epoch, model, optimizer,  scheduler, train_loss, val_loss, checkpoint_path)
 
     wandb.finish()
