@@ -83,7 +83,7 @@ def train_and_validate(start_epoch, model, train_loader, val_loader, scheduler, 
         # Logging su W&B
         log_to_wandb(epoch, train_loss=train_loss, train_accuracy=train_accuracy, val_loss=val_loss, val_accuracy=val_accuracy)
 
-        # Scheduler step and debug
+        # Scheduler step and debug 
         scheduler.step()
         # Output
         print(f"[Epoch {epoch}] Train Loss: {train_loss:.4f}, Train Accuracy: {train_accuracy:.2f}%, Val Loss: {val_loss:.4f}, Val Accuracy: {val_accuracy:.2f}%")
