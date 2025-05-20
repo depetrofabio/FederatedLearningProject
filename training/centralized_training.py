@@ -4,13 +4,13 @@ import wandb
 from FederatedLearningProject.checkpoints.checkpointing import save_checkpoint
 
 
-def train_epoch(model, train_loader, optimizer, criterion, device): # aggiungere scheduler 
-    # Attenzione: se scrivi model.train() here would undo block.eval() settings.
+def train_epoch(model, train_loader, optimizer, criterion, device):
 
     train_loss = 0.0
     correct_train = 0
     total_train = 0
 
+    model.train() # the model train() method should have been overrided if some blocks must be in evaluation mode
     for images, labels in train_loader:
         images, labels = images.to(device), labels.to(device)
         
@@ -20,6 +20,7 @@ def train_epoch(model, train_loader, optimizer, criterion, device): # aggiungere
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        # scheduler step in train_and_validate()
 
         train_loss += loss.item() * images.size(0)
         _, predicted = torch.max(outputs, 1)
@@ -34,8 +35,7 @@ def train_epoch(model, train_loader, optimizer, criterion, device): # aggiungere
 
 # Funzione per eseguire la validazione
 def validate_epoch(model, val_loader, criterion, device):
-    model.backbone.eval()      # still frozen
-    model.classifier.eval()    # disable head dropout, if any
+    model.eval()
     
     val_loss = 0.0
     correct = 0
@@ -70,7 +70,7 @@ def log_to_wandb(epoch, train_loss, train_accuracy, val_loss, val_accuracy):
     }, step=epoch)
 
 # Funzione principale per l'allenamento e la validazione
-def train_and_validate(start_epoch, model, train_loader, val_loader, scheduler, optimizer, criterion, device,  checkpoint_path, num_epochs, checkpoint_interval):
+def train_and_validate(start_epoch, model, train_loader, val_loader, scheduler, optimizer, criterion, device, checkpoint_path, num_epochs, checkpoint_interval):
     #start_epoch = 1
 
     for epoch in range(start_epoch, num_epochs + 1):

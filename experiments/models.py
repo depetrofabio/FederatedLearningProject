@@ -96,15 +96,15 @@ def load_backbone():
     return torch.hub.load('facebookresearch/dino:main', 'dino_vits16')
 
 def move_to_cuda(model):
-    avaiability = torch.cuda.is_available()
-    if avaiability:
+    availability = torch.cuda.is_available()
+    if availability:
         device = torch.device("cuda")
         print("moving model to cuda")
     else:
         device = torch.device("cpu")
         print("cuda not available")
     model.to(device)
-    return avaiability
+    return availability
 
 # ========== HEAD ONLY =========== #
 class DinoOnlyHead(nn.Module):
@@ -130,6 +130,14 @@ class DinoOnlyHead(nn.Module):
             nn.Dropout(drop),
             nn.Linear(hidden_dim, num_classes)
         )
+        self.head.train()
+    
+    def train(self, mode: bool = True):
+        """Override the train method to ensure frozen parts stay in eval mode."""
+        super().train(mode) # This will set self.training and call train(mode) on all children
+        if mode:
+            self.backbone.eval()       
+        return self
 
     def forward(self, x):
         # get CLS token from the frozen backbone
@@ -162,7 +170,7 @@ class HeadAnd3Blocks(nn.Module):
         backbone = load_backbone()
 
         # Freeze patch embedding and dropout
-        for p in backbone.patch_embed.parameters():  # embedding vectors sono rappresentazioni numeriche dei dati
+        for p in backbone.patch_embed.parameters():  # embedding vectors sono le rappresentazioni numeriche dei dati
             p.requires_grad = False
 
         # Freeze first 9 blocks
@@ -189,6 +197,18 @@ class HeadAnd3Blocks(nn.Module):
             nn.Dropout(drop),
             nn.Linear(hidden_dim, num_classes)    # from 256 to 100
         )
+        self.head.train()
+    
+    def train(self, mode: bool = True):
+        """Override the train method to ensure frozen parts stay in eval mode."""
+        super().train(mode) # This will set self.training and call train(mode) on all children
+        if mode:
+            # If the model is being put into training mode,
+            # explicitly set the designated frozen blocks back to eval mode.
+            for i, block in enumerate(self.backbone.blocks):
+                if i < 9:           # take blocks from 0 to 9 and set them in eval again
+                    block.eval()        
+        return self
 
     def forward(self, x):
         feats = self.backbone.get_intermediate_layers(x, n=1)[0] # take the output features from DiNo's backbone
