@@ -12,37 +12,84 @@ def debug_model(model: nn.Module, model_name: str = "Model"):
         - Device of the parameter.
         - Whether the parameter requires gradients (is frozen or not).
         - Inferred block index if the name matches a ViT-like structure.
+        - Mode of the module containing the parameter (Train/Eval) if applicable.
     """
     print(f"\n--- Debugging {model_name} ---")
-
-    # Check overall model device (based on the first parameter)
     try:
+        # Check if the model has any parameters before trying to access the first one
+        if not list(model.parameters()):
+            print(f"{model_name} has no parameters.")
+            # Optionally, print overall model mode if it has no parameters but is a module
+            if hasattr(model, 'training'):
+                 model_mode_overall = "Train" if model.training else "Eval"
+                 print(f"{model_name} overall mode: {model_mode_overall}")
+            print(f"--- End Debugging {model_name} ---\n")
+            return
         first_param_device = next(model.parameters()).device
         print(f"{model_name} is primarily on device: {first_param_device}")
+        if hasattr(model, 'training'): # Also print overall model mode
+            model_mode_overall = "Train" if model.training else "Eval"
+            print(f"{model_name} overall mode: {model_mode_overall}")
     except StopIteration:
-        print(f"{model_name} has no parameters.")
+        # This StopIteration should ideally be caught by the check above,
+        # but it's a fallback.
+        print(f"{model_name} has no parameters (StopIteration).")
+        if hasattr(model, 'training'):
+             model_mode_overall = "Train" if model.training else "Eval"
+             print(f"{model_name} overall mode: {model_mode_overall}")
+        print(f"--- End Debugging {model_name} ---\n")
         return
-
-    print("\nParameter Details (Name | Device | Requires Grad? | Inferred Block):")
+    # Modified header for the new column
+    print("\nParameter Details (Name | Device | Requires Grad? | Inferred Block | Module Mode):") # Header changed to "Module Mode"
     for name, param in model.named_parameters():
         device = param.device
         requires_grad = param.requires_grad
-
         block_info = "N/A"
-        # Try to infer block index for ViT-like models
+        module_mode_str = "N/A"  # Renamed from block_mode_str for clarity
         if "blocks." in name:
             try:
-                # e.g., name = "blocks.0.attn.qkv.weight"
-                block_idx_str = name.split("blocks.")[1].split(".")[0]
+                # e.g., name = "backbone.blocks.0.attn.qkv.weight" or "blocks.0.attn.qkv.weight"
+                name_parts = name.split("blocks.")
+                block_idx_str = name_parts[1].split(".")[0]
                 if block_idx_str.isdigit():
                     block_info = f"Block {block_idx_str}"
+                    try:
+                        parent_module_of_blocks = model
+                        # Navigate to the parent module of 'blocks' if a path is prefixed
+                        # e.g., if name_parts[0] is "backbone.", navigate to model.backbone
+                        if name_parts[0]:
+                            for part in name_parts[0].rstrip('.').split('.'):
+                                parent_module_of_blocks = getattr(parent_module_of_blocks, part)
+                        # Now, parent_module_of_blocks is the module that should contain the 'blocks' attribute
+                        actual_block_module = parent_module_of_blocks.blocks[int(block_idx_str)]
+                        if hasattr(actual_block_module, 'training'):
+                             module_mode_str = "Train" if actual_block_module.training else "Eval"
+                    except Exception:
+                        pass # Keep module_mode_str as "N/A" if mode cannot be determined
             except IndexError:
                 block_info = "Block (parse error)"
-
-        print(f"- {name:<50} | {str(device):<10} | {str(requires_grad):<15} | {block_info}")
-
-    # You can add more specific checks here, e.g., for model mode (train/eval)
-    print(f"{model_name} is in {'training' if model.training else 'evaluation'} mode.")
+        else:
+            # Logic for parameters not in 'blocks.X' (e.g., head, backbone.norm)
+            try:
+                # Get all parts of the name except the parameter name itself to find the parent module
+                module_path_parts = name.split('.')[:-1]
+                current_parent_module = model # Start from the top-level model
+                if module_path_parts: # If the parameter is nested (e.g., "head.0.weight")
+                    for part_name in module_path_parts:
+                        if part_name.isdigit() and hasattr(current_parent_module, '__getitem__') and not isinstance(current_parent_module, dict):
+                            # Access elements of nn.ModuleList or nn.Sequential by index
+                            current_parent_module = current_parent_module[int(part_name)]
+                        else:
+                            # Access submodules by attribute name
+                            current_parent_module = getattr(current_parent_module, part_name)
+                # After the loop, current_parent_module is the direct parent of the parameter,
+                # or the model itself if the parameter is directly attached to the model.
+                if hasattr(current_parent_module, 'training'):
+                    module_mode_str = "Train" if current_parent_module.training else "Eval"
+            except Exception:
+                pass # Keep module_mode_str "N/A" if any error occurs during module path traversal
+        # Modified print statement to include module_mode_str and adjust spacing for block_info
+        print(f"- {name:<50} | {str(device):<10} | {str(requires_grad):<15} | {block_info:<15} | {module_mode_str}")
     print(f"--- End Debugging {model_name} ---\n")
 
 def load_backbone():
@@ -77,7 +124,7 @@ class DinoOnlyHead(nn.Module):
 
         # attach the head
         self.head = nn.Sequential(
-            nn.Dropout(drop),
+            # nn.Dropout(drop),                   # solitamnete non si fa il dropout prima dell'input layer, da capire
             nn.Linear(embed_dim, hidden_dim),
             nn.ReLU(inplace=True),
             nn.Dropout(drop),
