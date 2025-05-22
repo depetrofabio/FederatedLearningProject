@@ -231,14 +231,13 @@ class FlexibleDino(nn.Module):
         if (num_layers_to_freeze == 0): # se passiamo 0 come numero di blocchi da freezzare non freezziamo nemmeno questi 2 layers
             backbone.pos_embed.requires_grad = True
             backbone.cls_token.requires_grad = True
+            for p in backbone.patch_embed.parameters():  # embedding vectors sono le rappresentazioni numeriche dei dati
+                p.requires_grad = True
         else:
+            for p in backbone.patch_embed.parameters():  # embedding vectors sono le rappresentazioni numeriche dei dati
+                p.requires_grad = False
             backbone.pos_embed.requires_grad = False
             backbone.cls_token.requires_grad = False
-
-
-        # Freeze patch embedding and dropout
-        for p in backbone.patch_embed.parameters():  # embedding vectors sono le rappresentazioni numeriche dei dati
-            p.requires_grad = False
 
         # Freeze first num_layers_to_freeze blocks
         for block in backbone.blocks[0:num_layers_to_freeze]:
@@ -292,13 +291,21 @@ class FlexibleDino(nn.Module):
 
         if num_blocks > num_total_blocks:
             print(f"Warning: Requested to freeze {num_blocks} blocks, but backbone only has {num_total_blocks}")
+            exit(0)
         elif num_blocks < 0:
-            print(f"Warning: Requested to freeze {num_blocks} blocks. Freezeing 0 instead.")
+            print(f"Warning: Requested to freeze {num_blocks} blocks.")
+            exit(0)
+        
+        self.num_layers_frozen = num_blocks
 
         if (num_blocks == 0): # se passiamo 0 come numero di blocchi da freezzare non freezziamo nemmeno questi 2 layers
             self.backbone.pos_embed.requires_grad = True
             self.backbone.cls_token.requires_grad = True
+            for p in self.backbone.patch_embed.parameters():  # embedding vectors sono le rappresentazioni numeriche dei dati
+                p.requires_grad = True
         else:
+            for p in self.backbone.patch_embed.parameters():  # embedding vectors sono le rappresentazioni numeriche dei dati
+                p.requires_grad = False
             self.backbone.pos_embed.requires_grad = False
             self.backbone.cls_token.requires_grad = False
 
@@ -323,15 +330,22 @@ class FlexibleDino(nn.Module):
         if (num_blocks == 12): 
             self.backbone.pos_embed.requires_grad = True
             self.backbone.cls_token.requires_grad = True
+            for p in self.backbone.patch_embed.parameters():  # embedding vectors sono le rappresentazioni numeriche dei dati
+                p.requires_grad = True
         else:
+            for p in self.backbone.patch_embed.parameters():  # embedding vectors sono le rappresentazioni numeriche dei dati
+                p.requires_grad = False
             self.backbone.pos_embed.requires_grad = False
             self.backbone.cls_token.requires_grad = False
 
         if num_blocks > num_total_blocks:
-            print(f"Warning: Requested to unfreeze {num_blocks} blocks, but backbone only has {num_total_blocks}. Unfreezing all {num_total_blocks} blocks.")
+            print(f"Warning: Requested to unfreeze {num_blocks} blocks, but backbone only has {num_total_blocks}.")
+            exit(0)
         elif num_blocks < 0:
-            print(f"Warning: Requested to unfreeze {num_blocks} blocks. Unfreezing 0 blocks instead.")
+            print(f"Warning: Requested to unfreeze {num_blocks} blocks.")
+            exit(0)
         
+        self.num_layers_frozen = num_total_blocks - num_blocks
         start_index = num_total_blocks - num_blocks # es. se voglio defreezare 5 layer -> 12-5 = 7 -> 7-8-9-10-11 unfreezzati
         for i in range(start_index, num_total_blocks): 
             block = self.backbone.blocks[i]
