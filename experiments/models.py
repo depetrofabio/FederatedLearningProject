@@ -358,3 +358,135 @@ class FlexibleDino(nn.Module):
             block.eval()
             for param in block.parameters():
                 param.requires_grad = False
+
+
+class LinearFlexibleDino(nn.Module):
+    def __init__(self, num_classes=100, hidden_dim=256, drop=0.5, num_layers_to_freeze=0):
+        super().__init__()
+        backbone = load_backbone()
+        self.num_layers_frozen = num_layers_to_freeze
+
+        if (num_layers_to_freeze == 0): # se passiamo 0 come numero di blocchi da freezzare non freezziamo nemmeno questi 2 layers
+            backbone.pos_embed.requires_grad = True
+            backbone.cls_token.requires_grad = True
+            for p in backbone.patch_embed.parameters():  # embedding vectors sono le rappresentazioni numeriche dei dati
+                p.requires_grad = True
+        else:
+            for p in backbone.patch_embed.parameters():  # embedding vectors sono le rappresentazioni numeriche dei dati
+                p.requires_grad = False
+            backbone.pos_embed.requires_grad = False
+            backbone.cls_token.requires_grad = False
+
+        # Freeze first num_layers_to_freeze blocks
+        for block in backbone.blocks[0:num_layers_to_freeze]:
+            block.eval()
+            for param in block.parameters():
+                param.requires_grad = False
+
+        # Unfreeze remaining blocks (if needed)
+        for block in backbone.blocks[num_layers_to_freeze:]:
+            block.train()
+            for param in block.parameters():
+                param.requires_grad = True
+
+        self.backbone = backbone
+        embed_dim = backbone.embed_dim  # 384 for ViT-S/16
+        self.head = nn.Linear(384,100)
+        self.head.train()
+    
+    # @Override
+    def train(self, mode: bool = True):
+        """Override the train method to ensure frozen parts stay in eval mode."""
+        super().train(mode) # This will set self.training and call train(mode) on all children
+        if mode:
+            # If the model is being put into training mode,
+            # explicitly set the designated frozen blocks back to eval mode.
+            for i, block in enumerate(self.backbone.blocks):
+                if i < self.num_layers_frozen:           # take blocks from 0 to 9 and set them in eval again
+                    block.eval()        
+        return self
+
+    def forward(self, x):
+        feats = self.backbone.get_intermediate_layers(x, n=1)[0] # take the output features from DiNo's backbone
+        cls = feats[:, 0]                                        #
+        return self.head(cls)
+    
+    def debug(self):
+        debug_model(self)
+    
+    def to_cuda(self):
+        move_to_cuda(self)
+
+    def freeze(self, num_blocks): # num_blocks = numero di blocchi che vuoi freezzare (da 0 a 12) 
+        # es. se num_blocks = 4 allora i blocchi 0, 1, 2, 3 saranno freezzati
+        num_total_blocks = len(self.backbone.blocks)
+
+        if num_blocks > num_total_blocks:
+            print(f"Warning: Requested to freeze {num_blocks} blocks, but backbone only has {num_total_blocks}")
+            exit(0)
+        elif num_blocks < 0:
+            print(f"Warning: Requested to freeze {num_blocks} blocks.")
+            exit(0)
+        
+        self.num_layers_frozen = num_blocks
+
+        if (num_blocks == 0): # se passiamo 0 come numero di blocchi da freezzare non freezziamo nemmeno questi 2 layers
+            self.backbone.pos_embed.requires_grad = True
+            self.backbone.cls_token.requires_grad = True
+            for p in self.backbone.patch_embed.parameters():  # embedding vectors sono le rappresentazioni numeriche dei dati
+                p.requires_grad = True
+        else:
+            for p in self.backbone.patch_embed.parameters():  # embedding vectors sono le rappresentazioni numeriche dei dati
+                p.requires_grad = False
+            self.backbone.pos_embed.requires_grad = False
+            self.backbone.cls_token.requires_grad = False
+
+        for i in range(num_blocks):
+            block = self.backbone.blocks[i]
+            block.eval()
+            for param in block.parameters():
+                param.requires_grad = False
+        
+        for i in range(num_blocks, num_total_blocks):
+            block = self.backbone.blocks[i]
+            block.train()
+            for param in block.parameters():
+                param.requires_grad = True
+
+
+    # la unfreeze fa la stessa cosa della unfreeze, cambia solo il parametro in input, si può cancellare
+    def unfreeze(self, num_blocks): # num_blocks = numero di blocchi che vuoi unfreezzare 
+        # es. se num_blocks = 3 allora i blocchi unfreezzati saranno il 9, il 10 e l'11
+        num_total_blocks = len(self.backbone.blocks)
+
+        if (num_blocks == 12): 
+            self.backbone.pos_embed.requires_grad = True
+            self.backbone.cls_token.requires_grad = True
+            for p in self.backbone.patch_embed.parameters():  # embedding vectors sono le rappresentazioni numeriche dei dati
+                p.requires_grad = True
+        else:
+            for p in self.backbone.patch_embed.parameters():  # embedding vectors sono le rappresentazioni numeriche dei dati
+                p.requires_grad = False
+            self.backbone.pos_embed.requires_grad = False
+            self.backbone.cls_token.requires_grad = False
+
+        if num_blocks > num_total_blocks:
+            print(f"Warning: Requested to unfreeze {num_blocks} blocks, but backbone only has {num_total_blocks}.")
+            exit(0)
+        elif num_blocks < 0:
+            print(f"Warning: Requested to unfreeze {num_blocks} blocks.")
+            exit(0)
+        
+        self.num_layers_frozen = num_total_blocks - num_blocks
+        start_index = num_total_blocks - num_blocks # es. se voglio defreezare 5 layer -> 12-5 = 7 -> 7-8-9-10-11 unfreezzati
+        for i in range(start_index, num_total_blocks): 
+            block = self.backbone.blocks[i]
+            block.train() 
+            for param in block.parameters():
+                param.requires_grad = True
+
+        for i in range(num_total_blocks - num_blocks):
+            block = self.backbone.blocks[i]
+            block.eval()
+            for param in block.parameters():
+                param.requires_grad = False
