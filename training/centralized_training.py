@@ -1,6 +1,7 @@
 # Funzione per eseguire il training di un'epoca
 import torch
 import wandb
+import itertools
 from FederatedLearningProject.checkpoints.checkpointing import save_checkpoint
 
 
@@ -93,4 +94,40 @@ def train_and_validate(start_epoch, model, train_loader, val_loader, scheduler, 
         if epoch % checkpoint_interval == 0:
             save_checkpoint(epoch, model, optimizer,  scheduler, train_loss, val_loss, checkpoint_path)
 
-    wandb.finish()
+    # wandb.finish()
+    print(f"[train and validate]: final val accuracy: {val_accuracy}")
+    return val_accuracy
+
+def generate_configs(config):
+    '''
+    INPUT:  hyperparameters dictionary with all values of each param.
+    OUTPUT: all possible configurations with a corresponding key.
+
+    Example of input variable (config):
+    {
+    lr: {'values': [0.003]}
+    weight: {'values': [0.0001, 0.0005]}
+    }
+
+    Example of returned variable (configs):
+    {
+     0: {'lr': 0.003, 'weight_decay': 0.0001},
+     1: {'lr': 0.003, 'weight_decay': 0.0005}
+     }
+     
+    '''
+
+    # Separa i parametri variabili e fissi
+    grid_params = {k: v['values'] for k, v in config.items() if 'values' in v}
+
+    # Tutte le combinazioni possibili dei parametri variabili
+    keys, values = zip(*grid_params.items())    # take keys and values separately
+    # Save in a list of dictionaries all combinations, by using a cartesian product.
+    # Each dictionary represent a unique combination
+    combinations = [dict(zip(keys, v)) for v in itertools.product(*values)] 
+
+    # Genera dizionario numerato
+    configs = {}
+    for idx, combo in enumerate(combinations): # note combo ~ unique combination in a dict
+        configs[idx] = combo
+    return configs
