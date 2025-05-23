@@ -16,9 +16,9 @@ def save_checkpoint(epoch, model, optimizer, scheduler, train_loss, val_loss, ch
     print(f"Checkpoint salvato su: {checkpoint_path}")
 
 # Load checkpoints
-def load_checkpoint(model, optimizer, scheduler, checkpoint_dir="/content/drive/MyDrive/FL/FederatedLearningProject/checkpoints", model_name="dino_vits16"):
+def load_checkpoint(model, optimizer, scheduler, run_name = False, checkpoint_dir="/content/drive/MyDrive/FL/FederatedLearningProject/checkpoints"):
     """Loads a model checkpoint if it exists.
-       load: model state, optimizer state, schedulere state
+       load: model state, optimizer state, schedulere statea
 
     Args:
         model: The PyTorch model.
@@ -30,9 +30,13 @@ def load_checkpoint(model, optimizer, scheduler, checkpoint_dir="/content/drive/
         start_epoch: The epoch number to resume training from.
         checkpoint_data: A dictionary containing the checkpoint informantions
     """
+
+    if not run_name: 
+        print(f"\nSpecify the model name you want to load \nnothing was done ")
+        return
     
     os.makedirs(checkpoint_dir, exist_ok=True)
-    checkpoint_path = os.path.join(checkpoint_dir, f"{model_name}_checkpoint.pth")
+    checkpoint_path = os.path.join(checkpoint_dir, f"{run_name}_checkpoint.pth")
 
     start_epoch = 1
     checkpoint_data = None
