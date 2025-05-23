@@ -4,8 +4,11 @@ from torch.utils.data import DataLoader
 import torch.nn as nn
 import numpy as np
 import copy
+import os 
+import wandb
 # from training.centralized_training import train_epoch, validate_epoch
 from FederatedLearningProject.training.centralized_training import train_epoch, validate_epoch
+from FederatedLearningProject.checkpoints.checkpointing import save_checkpoint_fedavg
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 def debug_model(model: nn.Module, model_name: str = "Model"):
@@ -86,7 +89,6 @@ def train_client(model, client_loader, global_scheduler, global_optimizer, crite
         client_accuracy, avg_client_loss = train_epoch(
             model=local_model, 
             train_loader=client_loader,
-            scheduler=local_scheduler,
             optimizer=local_optimizer,
             criterion=criterion, 
             device=device
@@ -108,7 +110,6 @@ def average_weights(weights: List[Dict[str, torch.Tensor]], client_sizes: List[i
     
     for key in weights_avg.keys(): # itera tra tutte lei "key" dove per "Key" si intende l'insieme di parametri di un layer
         # primo step dell'algoritmo: inizializzazione dei pesi attraverso i parametri del primo client
-        
         weights_avg[key] = weights_avg[key] * (client_sizes[0] / total_size) # assicura che i parametri del primo client siano scalati
         
     for i in range(1, len(weights)): # iterazione sugli altri client 
@@ -118,7 +119,22 @@ def average_weights(weights: List[Dict[str, torch.Tensor]], client_sizes: List[i
     return weights_avg
 
 
-def train_server(model, num_rounds, client_dataset, optimizer, scheduler, device, val_loader, n_epochs_log=5 ,num_clients=100, num_client_epochs=4, frac=0.1, criterion=nn.CrossEntropyLoss, batch_size=128, debug = False):
+def train_server(model, 
+                 num_rounds, 
+                 client_dataset, 
+                 optimizer, 
+                 scheduler, 
+                 device, 
+                 val_loader, 
+                 n_rounds_log=5,
+                 num_clients=100, 
+                 num_client_epochs=4,
+                 frac=0.1,
+                 criterion=nn.CrossEntropyLoss,
+                 batch_size=128,
+                 debug = False,
+                 checkpoint_dir="/content/drive/MyDrive/FL/FederatedLearningProject/checkpoints", # Added
+                 model_name="dino_vits16"): # Added
     train_losses = []
     val_accuracies = []
     selected_clients_history = [] # lista dei clients selezionati (print ad ogni round di comunicazione)
@@ -152,18 +168,37 @@ def train_server(model, num_rounds, client_dataset, optimizer, scheduler, device
 
             client_models.append(client_model.state_dict())
             client_losses.append(client_loss)
-            client_accuracies.append(client_accuracy)
+            client_accuracies.append(client_accuracy)   
 
         updated_weights = average_weights(client_models, client_sizes)
         model.load_state_dict(updated_weights)
 
         avg_loss = sum(client_losses) / len(client_losses)
+        # che cosa si può plottare in relazione al singolo client?
+
+
         train_losses.append(avg_loss)
 
-        if (round + 1) % n_epochs_log == 0:
+        if (round + 1) % n_rounds_log == 0:
+
+            client_avg_accuracy_for_log = sum(client_accuracies) / len(client_accuracies)
+
             val_loss, val_acc = val(model, val_loader, device, criterion) 
             val_accuracies.append(val_acc)
             
+            log_to_wandb_fedavg(round=round, client_avg_loss = avg_loss, client_avg_accuracy= client_avg_accuracy_for_log, server_val_accuracy=val_acc, server_val_loss=val_loss)
+            # --- Save checkpoint ---
+            checkpoint_path = os.path.join(checkpoint_dir, f"{model_name}_checkpoint.pth")
+            save_checkpoint_fedavg(
+                round=round, # Current round number
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                avg_client_loss=avg_loss, # Loss from the current round
+                val_loss=val_loss, # Validation loss from the current round
+                checkpoint_path=checkpoint_path
+            )
+
             print(f"\nRound {round+1}/{num_rounds}")
             print(f"Selected Clients: {idx_clients}")
             print(f"Avg Client Loss: {avg_loss:.4f} | Avg Client Accuracy: {sum(client_accuracies)/len(client_accuracies):.2f}%")
@@ -204,3 +239,12 @@ def val(model, val_loader, device, criterion):
     
     return avg_loss, accuracy
 
+
+def log_to_wandb_fedavg(round, client_avg_loss, client_avg_accuracy, server_val_loss, server_val_accuracy):
+    wandb.log({
+        "client_avg_loss": client_avg_loss,
+        "client_avg_accuracy": client_avg_accuracy,
+        "server_val_loss": server_val_loss,
+        "server_val_accuracy": server_val_accuracy,
+        "round":round
+    }, step=round)
