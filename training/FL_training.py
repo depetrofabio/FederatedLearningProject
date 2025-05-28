@@ -10,6 +10,7 @@ import wandb
 from FederatedLearningProject.training.centralized_training import train_epoch, validate_epoch
 from FederatedLearningProject.checkpoints.checkpointing import save_checkpoint_fedavg
 from torch.optim.lr_scheduler import CosineAnnealingLR
+import itertools
 
 def debug_model(model: nn.Module, model_name: str = "Model"):
     """
@@ -57,18 +58,18 @@ def debug_model(model: nn.Module, model_name: str = "Model"):
 
 
 # come posizionare lo scheduler nel FL setting?
-def train_client(model, client_loader, global_scheduler, global_optimizer, criterion, device, num_local_epochs, debug): # num_local_epochs = J nel pdf e E nel paper
+def train_client(model, client_loader, global_optimizer, criterion, device, num_local_epochs, debug,batch_size=128,num_local_steps = 4): # num_local_epochs = J nel pdf e E nel paper
     local_model = copy.deepcopy(model).to(device)
     if debug:
         debug_model(local_model)
-    
-    
     # print(f"Il device su cui è la copia del local_model è {local_model.get_device()}")
     # local_model.train()             # il modello dovrebbe già essere nelle condizioni adatte, non va settato tutto su train 
                                       # per evitare drop out dei layer bloccati
                                     
     # questo crea un optimizer per i client con gli hyperparameters del global optimizer (quello del server),
     #  
+
+    data_iterator = itertools.cycle(client_loader)
 
 
     #local_optimizer = type(optimizer)(local_model.parameters(), **optimizer.defaults)
@@ -78,24 +79,51 @@ def train_client(model, client_loader, global_scheduler, global_optimizer, crite
 
     local_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         local_optimizer,
-        T_max=num_local_epochs, # T_max = numero di epoche locali
+        T_max=num_local_steps, # T_max = numero di epoche locali
     )
-
-
+    
     client_accuracies_epoch = []
     client_losses_epoch = []
 
-    for _ in range(num_local_epochs):
-        client_accuracy, avg_client_loss = train_epoch(
-            model=local_model, 
-            train_loader=client_loader,
-            optimizer=local_optimizer,
-            criterion=criterion, 
-            device=device
-        )
-        client_accuracies_epoch.append(client_accuracy)
-        client_losses_epoch.append(avg_client_loss)
-        local_scheduler.step() # ricordare di mettere lo scheduler.step() ogni EPOCA anche nel centralized
+        # Initialize accumulators for this client's local training
+    accumulated_loss = 0.0
+    accumulated_correct = 0
+    accumulated_total_samples = 0
+
+    for step in range(num_local_steps):
+        images, labels = next(data_iterator)
+        images, labels = images.to(device), labels.to(device)
+
+        local_optimizer.zero_grad()
+        outputs = local_model(images)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        local_optimizer.step()
+
+        accumulated_loss += loss.item() * images.size(0)
+        _,predicted = torch.max(outputs, 1)
+        accumulated_total_samples += labels.size(0)
+        accumulated_correct += (predicted == labels).sum().item()
+
+    # Calculate metrics for this client after all local steps
+    if accumulated_total_samples > 0:
+        client_accuracy = 100 * accumulated_correct / accumulated_total_samples
+        avg_client_loss = accumulated_loss / accumulated_total_samples
+    else:
+        client_accuracy = 0.0
+        avg_client_loss = 0.0
+    #for _ in range(num_local_epochs):
+        #client_accuracy, avg_client_loss = train_epoch(
+         #   model=local_model, 
+         #  train_loader=client_loader,
+         #   optimizer=local_optimizer,
+         #   criterion=criterion, 
+         #   device=device
+        #)
+
+    client_accuracies_epoch.append(client_accuracy)
+    client_losses_epoch.append(avg_client_loss)
+    local_scheduler.step() # ricordare di mettere lo scheduler.step() ogni EPOCA anche nel centralized
 
     final_avg_client_loss = client_losses_epoch[-1] if client_losses_epoch else 0
     final_client_accuracy = client_accuracies_epoch[-1] if client_accuracies_epoch else 0
@@ -175,7 +203,6 @@ def train_server(model,
 
         avg_loss = sum(client_losses) / len(client_losses)
         # che cosa si può plottare in relazione al singolo client?
-
 
         train_losses.append(avg_loss)
 

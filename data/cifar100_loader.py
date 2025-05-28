@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import heapq
 from google.colab import drive
+from sklearn.model_selection import StratifiedShuffleSplit
 import warnings
 
 # CIFAR 100 contains 100 calsses. There are 500 images per class in the train set and 100 per class in the test set.
@@ -36,7 +37,8 @@ class TransformedSubset(torch.utils.data.Dataset):
 
 def get_cifar100(valid_split_perc: float = 0.2,
                  seed: int = 42,
-                 transf: bool = True):
+                 transf: bool = True,
+                 stratified: bool = False):
     """
     Load CIFAR-100 with train/val/test splits and apply transforms via TransformedSubset.
     Returns either (trainset, valset, testset) with transforms, or the raw Subsets if transf=False.
