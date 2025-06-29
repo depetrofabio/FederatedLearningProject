@@ -1,35 +1,10 @@
-import numpy as np
-import wandb
-from google.colab import drive
-drive.mount('/content/drive', force_remount=True)
-import shutil
-import os                              # Import the 'os' module for changing directories
-os.chdir('/content/drive/MyDrive/FL')  # Change the directory
-import datetime as datetime
-import copy
-import json
-import torch
-import torch.optim as optim
-from torch.optim.lr_scheduler import CosineAnnealingLR
-import torch.nn as nn
-
-import torchvision
-from torchvision import transforms
-from torchvision.datasets import CIFAR100
-from torch.utils.data import Subset, DataLoader, random_split
-
-from FederatedLearningProject.data.cifar100_loader import get_cifar100
-from FederatedLearningProject.checkpoints.checkpointing import save_checkpoint, load_checkpoint
-from FederatedLearningProject.training.centralized_training import train_and_validate, train_epoch, validate_epoch, log_to_wandb, generate_configs
-
-
-import FederatedLearningProject.experiments.models as models
-
+import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
+import numpy as np
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-import matplotlib.pyplot as plt
-
+# Plotting Function
 def plot_all_layers_mask_sparsity(final_mask):
     layer_names = []
     active_percentages = []
@@ -50,8 +25,49 @@ def plot_all_layers_mask_sparsity(final_mask):
     plt.grid(True, axis='x')
     plt.tight_layout()
     plt.show()
+    
+    
+def plot_qkv_weight_bias_sparsity(final_mask):
+    labels = []
+    percentages = []
+    colors = []
 
-#######################################################
+    for name, mask in final_mask.items():
+        if "qkv.weight" in name or "qkv.bias" in name:
+            # Separazione Q, K, V
+            size = mask.shape[0] // 3
+            q_mask = mask[:size]
+            k_mask = mask[size:2*size]
+            v_mask = mask[2*size:]
+
+            if mask.dim() == 2:  # weight: shape [3*D, D]
+                q_label = name.replace(".qkv.weight", "") + "_Q_weight"
+                k_label = name.replace(".qkv.weight", "") + "_K_weight"
+                v_label = name.replace(".qkv.weight", "") + "_V_weight"
+            else:  # bias: shape [3*D]
+                q_label = name.replace(".qkv.bias", "") + "_Q_bias"
+                k_label = name.replace(".qkv.bias", "") + "_K_bias"
+                v_label = name.replace(".qkv.bias", "") + "_V_bias"
+
+            for lbl, m in zip([q_label, k_label, v_label], [q_mask, k_mask, v_mask]):
+                active = (m == 1).sum().item()
+                total = m.numel()
+                perc = 100 * active / total
+                labels.append(lbl)
+                percentages.append(perc)
+                colors.append("steelblue" if "weight" in lbl else "orange")
+
+    # Plot
+    plt.figure(figsize=(14, max(6, len(labels)*0.3)))
+    bars = plt.barh(labels, percentages, color=colors)
+    plt.xlabel("Percentuale di pesi attivi (mask = 1)")
+    plt.title("Sparsità componenti Q/K/V - weight e bias")
+    plt.grid(True, axis='x', linestyle='--', alpha=0.6)
+    plt.tight_layout()
+    plt.show()
+    
+    
+        
 
 def compute_fisher_diagonal_per_example(model, dataloader, mask, device='cuda', num_examples=None, soft_zero = 0.001):
     """
@@ -129,8 +145,6 @@ def compute_fisher_diagonal_per_example(model, dataloader, mask, device='cuda', 
             fisher_diag[name] /= example_count
 
     return fisher_diag
-
-############################################
 
 def compute_mask_round(fisher_diag, round_target_sparsity, previous_mask, debug=True):
     """
@@ -211,9 +225,7 @@ def compute_mask_round(fisher_diag, round_target_sparsity, previous_mask, debug=
 
     return round_mask
 
-#########################################################
-
-def compute_mask(model, dataloader, sparsity_target=0.9, R=5, num_examples=None, device='cuda'):
+def compute_mask(model, dataloader, sparsity_target=0.9, R=5, num_examples=None, device='cuda', enable_plot=0):
     """
     Computes the final pruning mask iteratively, pruning the most sensitive weights.
 
@@ -227,6 +239,13 @@ def compute_mask(model, dataloader, sparsity_target=0.9, R=5, num_examples=None,
     Output:
         final_mask: The final computed binary mask.
     """
+    # requires_grade True for all layers
+    model.freeze(0)
+
+    # requires_grade False for head, norm, token, embedding
+    for name, param in model.named_parameters():
+        if 'embed' in name or 'cls_token' in name or 'backbone.norm' in name or 'head' in name:
+            param.requires_grad = False
 
     # Set model to evaluation mode
     model.eval()
@@ -269,6 +288,7 @@ def compute_mask(model, dataloader, sparsity_target=0.9, R=5, num_examples=None,
         actual_sparsity = pruned_params / total_params
         print(f"Achieved cumulative sparsity in final mask: {actual_sparsity:.4f}")
         print("-" * 25 + "\n")
-        plot_all_layers_mask_sparsity(final_mask)
+        if(enable_plot==1):
+            plot_all_layers_mask_sparsity(final_mask)
 
     return final_mask
