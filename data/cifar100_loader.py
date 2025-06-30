@@ -39,9 +39,11 @@ def get_cifar100(valid_split_perc: float = 0.2,
                  transf: bool = True):
     """
     Load CIFAR-100 with train/val/test splits and apply transforms via TransformedSubset.
-    Returns either (trainset, valset, testset) with transforms, or the raw Subsets if transf=False.
+    If valid_split_perc=0, returns only train and test sets.
 
-    Returns: train, val, test
+    Returns:
+        If valid_split_perc > 0: (trainset, valset, testset)
+        If valid_split_perc == 0: (trainset, testset)
     """
     mean = [0.485, 0.456, 0.406]
     std  = [0.229, 0.224, 0.225]
@@ -58,29 +60,42 @@ def get_cifar100(valid_split_perc: float = 0.2,
     ])
 
     # Load raw datasets with no transforms
-    full_train = CIFAR100(root='./data', train=True,  download=True, transform=None)
+    full_train = CIFAR100(root='./data', train=True, download=True, transform=None)
     test_raw   = CIFAR100(root='./data', train=False, download=True, transform=None)
 
-    # Split train into train/val
-    train_size = int((1 - valid_split_perc) * len(full_train))
-    val_size   = len(full_train) - train_size
-    gen        = torch.Generator().manual_seed(seed)
-    train_sub, val_sub = random_split(full_train, [train_size, val_size], generator=gen)
+    if valid_split_perc > 0:
+        # Split train into train/val
+        train_size = int((1 - valid_split_perc) * len(full_train))
+        val_size   = len(full_train) - train_size
+        gen        = torch.Generator().manual_seed(seed)
+        train_sub, val_sub = random_split(full_train, [train_size, val_size], generator=gen)
 
-    # Wrap in TransformedSubset
-    trainset = TransformedSubset(train_sub, train_transform)
-    valset   = TransformedSubset(val_sub,   base_transform)
-    testset  = TransformedSubset(test_raw,  base_transform)
+        # Apply transforms if requested
+        if transf:
+            trainset = TransformedSubset(train_sub, train_transform)
+            valset   = TransformedSubset(val_sub, base_transform)
+            testset  = TransformedSubset(test_raw, base_transform)
+        else:
+            trainset, valset, testset = train_sub, val_sub, test_raw
 
-    print(f"Number of images in Training Set:   {len(trainset)}")
-    print(f"Number of images in Validation Set: {len(valset)}")
-    print(f"Number of images in Test Set:       {len(testset)}")
-    print("✅ Datasets loaded successfully")
-
-    if transf:
+        print(f"Number of images in Training Set:   {len(trainset)}")
+        print(f"Number of images in Validation Set: {len(valset)}")
+        print(f"Number of images in Test Set:       {len(testset)}")
+        print("✅ Datasets loaded successfully")
         return trainset, valset, testset
+
     else:
-        return train_sub, val_sub, test_raw
+        full_subset = Subset(full_train, list(range(len(full_train))))
+        if transf:
+            trainset = TransformedSubset(full_subset, train_transform)
+            testset  = TransformedSubset(test_raw, base_transform)
+        else:
+            trainset, testset = full_subset, test_raw
+
+        print(f"Number of images in Training Set:   {len(trainset)}")
+        print(f"Number of images in Test Set:       {len(testset)}")
+        print("✅ Datasets loaded successfully (no validation split)")
+        return trainset, testset
 
 
 def create_iid_splits(dataset: Dataset, num_clients: int = 100, keep_transformations = True, debug=True):

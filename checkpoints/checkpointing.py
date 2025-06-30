@@ -48,13 +48,13 @@ def load_checkpoint(model, optimizer, scheduler, checkpoint_dir="/content/drive/
 
     return start_epoch, checkpoint_data
 
-def save_checkpoint_fedavg(round, model, optimizer, avg_client_loss, val_loss, checkpoint_path):
+def save_checkpoint_fedavg(round, model, optimizer, avg_client_loss, test_loss, checkpoint_path):
     torch.save({
         "round": round,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),  
         "avg_client_loss": avg_client_loss,
-        "val_server_loss": val_loss,
+        "test_server_loss": test_loss,
     }, checkpoint_path)
     print(f"Checkpoint salvato su: {checkpoint_path}")
 
