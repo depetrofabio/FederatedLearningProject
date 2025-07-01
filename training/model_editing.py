@@ -292,3 +292,173 @@ def compute_mask(model, dataloader, sparsity_target=0.9, R=5, num_examples=None,
             plot_all_layers_mask_sparsity(final_mask)
 
     return final_mask
+
+
+
+
+######## SPARSE SGDM ##########
+# implementation of a personalized optimizer
+
+from torch.optim.optimizer import Optimizer, required
+from typing import Dict, Iterable, Optional
+
+class SparseSGDM(Optimizer):
+    r"""Implements Stochastic Gradient Descent with Momentum and a sparsity mask.
+
+    This optimizer is an extension of the standard `torch.optim.SGD`. It is designed
+    for model editing and sparse fine-tuning tasks where only a specific subset of
+    model weights should be updated.
+
+    The core functionality is the introduction of a `mask` for each parameter.
+    This mask is a binary tensor (containing 0s and 1s) with the same shape as the
+    parameter it corresponds to. During the update step, the calculated gradient
+    and momentum (the final update vector) is element-wise multiplied by this mask.
+    This operation effectively zeroes out the updates for weights where the mask
+    has a value of 0, thus "freezing" them.
+
+    This class is implemented by re-creating the `step` method of the standard
+    SGDM optimizer to correctly inject the masking operation *after* the momentum
+    calculation, which is crucial for correctly freezing weights that have a
+    non-zero momentum history. (Note: for us is useless)
+
+    Args:
+        params (iterable): An iterable of (name, parameter) tuples, typically from
+            `model.named_parameters()`.
+        masks (dict): A dictionary mapping parameter names (str) to mask tensors.
+            The optimizer will only update parameters that have a corresponding
+            entry in this dictionary.
+        lr (float): The learning rate. It's a required argument.
+        momentum (float, optional): The momentum factor (default: 0).
+        weight_decay (float, optional): The weight decay (L2 penalty) factor (default: 0).
+        dampening (float, optional): A dampening factor for momentum (default: 0).
+        nesterov (bool, optional): Enables Nesterov Accelerated Gradient (NAG) (default: False).
+    """
+
+    # The init method is used to initialize the optimizer's internal state. 
+    # In this method, we define the hyperparameters of the optimizer and set the internal state
+    def __init__(self, params: Iterable[tuple[str, torch.Tensor]], 
+                 masks: Dict[str, torch.Tensor], 
+                 lr: float = required, momentum: float = 0, dampening: float = 0,
+                 weight_decay: float = 0, nesterov: bool = False):
+        
+        # --- Argument Validation ---
+        if lr is not required and lr < 0.0:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if momentum < 0.0:
+            raise ValueError(f"Invalid momentum value: {momentum}")
+        if weight_decay < 0.0:
+            raise ValueError(f"Invalid weight_decay value: {weight_decay}")
+        if nesterov and (momentum <= 0 or dampening != 0):
+            raise ValueError("Nesterov momentum requires a momentum and zero dampening.")
+
+        # --- Aligning Parameters with Masks using Names ---
+        # We iterate through the named parameters and use the 
+        # name to look up the corresponding mask from the dictionary. 
+        # This avoids any issues with parameter/mask ordering.
+
+        # What happens in practice:
+        # -> We create a separate param_group for each individual parameter that we want to optimize.
+        # -> Inside each group, we store not only the parameter itself ('params': [param]) but also our custom information: 
+        #    the corresponding sparsity mask ('mask': mask).
+        # This allows the optimizer's step function to loop through each parameter, easily access its specific mask, 
+        # and apply the correct sparse update logic.
+        param_groups = []
+        for name, param in params:
+            # We only create a parameter group for parameters that are included in the mask dictionary.
+            # This allows you to naturally control which layers are optimized.
+            if name in masks:
+                mask = masks[name]
+                if param.shape != mask.shape:
+                    raise ValueError(
+                        f"Shape of parameter '{name}' ({param.shape}) does not match "
+                        f"shape of its mask ({mask.shape})."
+                    )
+                # Each group contains the parameter itself and its mask.
+                # I added the name for debugging if needed
+                param_groups.append({'params': [param], 'mask': mask, 'name': name})
+
+        if not param_groups:
+            raise ValueError("No parameters to optimize. Make sure the names in `params` match the keys in the `masks` dictionary.")
+
+        # --- Default Hyperparameters ---
+        defaults = dict(lr=lr, momentum=momentum, dampening=dampening,
+                        weight_decay=weight_decay, nesterov=nesterov)
+        
+        # --- Initialize the Parent Optimizer ---
+        # we pass param groups (list of dict) which encode all information about the mask,
+        # this way we'll be able to use it in the step()
+        super().__init__(param_groups, defaults)  # calling the constructor (__init__ insomma) of torch.optim.Optimizer 
+
+# ---  Use the parent method to resume a checkpoint ---
+#      check for nesterov to avoid errors.
+    def __setstate__(self, state): 
+        super().__setstate__(state)
+        for group in self.param_groups:
+            group.setdefault('nesterov', False)
+
+# --- Mask logig implementation ---
+    @torch.no_grad()
+    def step(self):
+        """
+        Performs a single optimization step.
+
+        This is a lightweight version of the step function that omits the 'closure'
+        logic, as it is not required for optimizers like SGD and its variants.
+        """
+        for group in self.param_groups:
+            params_with_grad = []
+            d_p_list = []   # delta-p will store the gradient tensor for each parameter in params_with_grad
+            momentum_buffer_list = [] # store momentum
+            
+            # --- Retrieve Group-Specific Settings ---
+            # For the current parameter group being processed, we unpack all its
+            # specific settings. These values are present in the `group` dictionary
+            # because the parent 'Optimizer' class automatically populated them
+            # from the 'defaults' dictionary during initialization.
+            # (Vedi sopra quando chiamo super().__init()__(param_groups, defaults))
+            momentum = group['momentum']
+            dampening = group['dampening']
+            weight_decay = group['weight_decay']
+            nesterov = group['nesterov']
+            lr = group['lr']
+            # This is our custom setting, which we added to the group ourselves.
+            mask = group['mask']
+
+            # this is the standard way of writing this part, but actually we have a 
+            # single tensor in group['params'], so it is equivalent to: p = group['params'][0]
+            # => the loop runs only once
+            for p in group['params']:     
+                if p.grad is not None:
+                    params_with_grad.append(p)  # append the tensor p
+                    d_p_list.append(p.grad)     # append gradient of the tensor. p.grad contains the grad. of the loss f. w.r.t the most recent backward pass (result of loss.backward())
+                    state = self.state[p]
+                    if 'momentum_buffer' not in state:
+                        momentum_buffer_list.append(None)
+                    else:
+                        momentum_buffer_list.append(state['momentum_buffer']) # If a momentum buffer does exist from a previous step, we retrieve it from the state dictionary and add it to our momentum_buffer_list
+
+            for i, param in enumerate(params_with_grad):  # again in our case this runs only once
+                d_p = d_p_list[i]
+                
+                # -- See SGDM pseudocode --
+                if weight_decay != 0:
+                    # vectorized operation: g_t <- g_t + lambda*theta_(t-1)
+                    d_p = d_p.add(param, alpha=weight_decay) # if enabled, weight_decay will add fraction of the weight to the loss to prevent it growing to large
+                
+                if momentum != 0:
+                    buf = momentum_buffer_list[i]
+                    if buf is None:  # at the first step, we must initialize momentum
+                        buf = torch.clone(d_p).detach()
+                        momentum_buffer_list[i] = buf
+                    else:
+                        buf.mul_(momentum).add_(d_p, alpha=1 - dampening)  # b_t <- mu*b_(t-1) + (1-tau)*g_t
+                    if nesterov:
+                        d_p = d_p.add(buf, alpha=momentum)
+                    else:
+                        d_p = buf
+                
+                d_p_masked = d_p * mask.to(d_p.device)  # elem-wise mul
+                param.add_(d_p_masked, alpha=-lr)       # theta_t <- theta_(t-1) - gamma*masked_update
+
+            for p, momentum_buffer in zip(params_with_grad, momentum_buffer_list):
+                self.state[p]['momentum_buffer'] = momentum_buffer
