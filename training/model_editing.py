@@ -357,7 +357,7 @@ class SparseSGDM(Optimizer):
         # This avoids any issues with parameter/mask ordering.
 
         # What happens in practice:
-        # -> We create a separate param_group for each individual parameter that we want to optimize.
+        # -> We create a separate param_group for each individual parameter (tensor) that we want to optimize.
         # -> Inside each group, we store not only the parameter itself ('params': [param]) but also our custom information: 
         #    the corresponding sparsity mask ('mask': mask).
         # This allows the optimizer's step function to loop through each parameter, easily access its specific mask, 
@@ -387,13 +387,17 @@ class SparseSGDM(Optimizer):
         # --- Initialize the Parent Optimizer ---
         # we pass param groups (list of dict) which encode all information about the mask,
         # this way we'll be able to use it in the step()
+        # Il costruttore della classe genitore fa una cosa molto intelligente per noi: 
+        #       > Prende la lista param_groups e la salva internamente come self.param_groups. 
+        #       > Poi, scorre ogni singolo "pacchetto" (dizionario) nella lista.
+        #       > Per ogni pacchetto, controlla quali iperparametri dal dizionario defaults mancano.
+        #       > Copia tutti gli iperparametri mancanti da defaults direttamente dentro al pacchetto.
         super().__init__(param_groups, defaults)  # calling the constructor (__init__ insomma) of torch.optim.Optimizer 
 
 # ---  Use the parent method to resume a checkpoint ---
-#      check for nesterov to avoid errors.
     def __setstate__(self, state): 
         super().__setstate__(state)
-        for group in self.param_groups:
+        for group in self.param_groups:         # ensures backward compatibility when loading state dicts that might omit the nesterov flag.
             group.setdefault('nesterov', False)
 
 # --- Mask logig implementation ---
