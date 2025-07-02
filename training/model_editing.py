@@ -363,7 +363,7 @@ class SparseSGDM(Optimizer):
         # This allows the optimizer's step function to loop through each parameter, easily access its specific mask, 
         # and apply the correct sparse update logic.
         param_groups = []
-        for name, param in params:
+        for name, param in params:   # model.named_params
             # We only create a parameter group for parameters that are included in the mask dictionary.
             # This allows you to naturally control which layers are optimized.
             if name in masks:
@@ -400,7 +400,7 @@ class SparseSGDM(Optimizer):
         for group in self.param_groups:         # ensures backward compatibility when loading state dicts that might omit the nesterov flag.
             group.setdefault('nesterov', False)
 
-# --- Mask logig implementation ---
+# --- Mask logic implementation ---
     @torch.no_grad()
     def step(self):
         """
@@ -431,7 +431,7 @@ class SparseSGDM(Optimizer):
             # this is the standard way of writing this part, but actually we have a 
             # single tensor in group['params'], so it is equivalent to: p = group['params'][0]
             # => the loop runs only once
-            for p in group['params']:     
+            for p in group['params']:     # equivalent to p = group['params][0]
                 if p.grad is not None:
                     params_with_grad.append(p)  # append the tensor p
                     d_p_list.append(p.grad)     # append gradient of the tensor. p.grad contains the grad. of the loss f. w.r.t the most recent backward pass (result of loss.backward())
@@ -442,7 +442,7 @@ class SparseSGDM(Optimizer):
                         momentum_buffer_list.append(state['momentum_buffer']) # If a momentum buffer does exist from a previous step, we retrieve it from the state dictionary and add it to our momentum_buffer_list
 
             for i, param in enumerate(params_with_grad):  # again in our case this runs only once
-                d_p = d_p_list[i]
+                d_p = d_p_list[i]                         # equivalent to d_p = d_p_list[0]
                 
                 # -- See SGDM pseudocode --
                 if weight_decay != 0:
