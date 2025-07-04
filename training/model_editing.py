@@ -5,6 +5,7 @@ import numpy as np
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 from torch.utils.data import DataLoader, Subset
 import torch.nn as nn
+import copy
 import time
 
 
@@ -531,27 +532,28 @@ def compute_mask(model, dataloader, sparsity_target=0.9, R=5, soft_zero=0.1, num
     Output:
         final_mask: The final computed binary mask.
     """
+    local_model = copy.deepcopy(model)
     # requires_grade True for all layers
-    model.freeze(0)
+    local_model.freeze(0)
 
     # requires_grade False for head, norm, token, embedding
-    for name, param in model.named_parameters():
+    for name, param in local_model.named_parameters():
         if 'embed' in name or 'cls_token' in name or 'backbone.norm' in name or 'head' in name:
             param.requires_grad = False
 
     # Set model to evaluation mode
-    model.eval()
+    local_model.eval()
 
     # print model structure
     if debug:
-      model.debug()
+      local_model.debug()
 
     # --- Initialize the mask ---
     # We start with a mask of all ones, meaning no parameters are pruned initially.
     # torch.ones_like(p) creates a tensor of all ones with the same shape as p.
     final_mask = {
         name: torch.ones_like(p, device='cpu')
-        for name, p in model.named_parameters() if p.requires_grad              # in the mask we consider the backbone layers only
+        for name, p in local_model.named_parameters() if p.requires_grad              # in the mask we consider the backbone layers only
     }
 
     # --- The iterative pruning loop ---
@@ -563,7 +565,7 @@ def compute_mask(model, dataloader, sparsity_target=0.9, R=5, soft_zero=0.1, num
         # Compute Fisher scores using the cumulative mask from previous rounds.
         # This means we only calculate scores for weights that are still "alive".
             print("Computing Fisher diagonal with current mask...")
-        fisher_diag = compute_fisher_diagonal_per_example(model, dataloader, final_mask, soft_zero,  device, num_examples)  # it's called final mask, just because at the end that variable will contain the final mask
+        fisher_diag = compute_fisher_diagonal_per_example(local_model, dataloader, final_mask, soft_zero,  device, num_examples)  # it's called final mask, just because at the end that variable will contain the final mask
 
         # increase the target sparsity at each round.
         current_sparsity = 1-(1-sparsity_target)**(r/R) # ex. (1-0.1^(r/R))
