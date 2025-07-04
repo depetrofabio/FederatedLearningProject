@@ -9,6 +9,7 @@ import wandb
 # from training.centralized_training import train_epoch, validate_epoch
 # from FederatedLearningProject.training.centralized_training import train_epoch, validate_epoch
 from FederatedLearningProject.checkpoints.checkpointing import save_checkpoint_fedavg
+from FederatedLearningProject.training.model_editing.py import compute_mask
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import itertools
 
@@ -145,7 +146,7 @@ def train_server(model,
                  client_dataset, 
                  optimizer, 
                  device, 
-                 test_loader, 
+                 val_loader, 
                  checkpoint_path,
                  n_rounds_log=5,
                  num_clients=100, 
@@ -156,7 +157,7 @@ def train_server(model,
                  debug = False, # Added checkpoint_dir="/content/drive/MyDrive/FL/FederatedLearningProject/checkpoints"
                  model_name="dino_vits16"): # Added
     train_losses = []
-    test_accuracies = []
+    val_accuracies = []
     selected_clients_history = [] # lista dei clients selezionati (print ad ogni round di comunicazione)
 
     for round in range(num_rounds):
@@ -167,7 +168,7 @@ def train_server(model,
 
         # seleziona i clients come nell'algoritmo FedAvg (paper di McMahan)
         m = max(int(num_clients * frac), 1)
-        idx_clients = np.random.choice(range(num_clients), m, replace=False) 
+        idx_clients = np.random.choice(range(num_clients), m, replace=False) # nello stesso round non può essere pescato lo stesso client
         selected_clients_history.append(idx_clients)
 
         for client_idx in idx_clients:
@@ -201,10 +202,10 @@ def train_server(model,
 
             client_avg_accuracy_for_log = sum(client_accuracies) / len(client_accuracies)
 
-            test_loss, test_acc = val(model, test_loader, device, criterion) 
-            test_accuracies.append(test_acc)
+            val_loss, val_acc = val(model, val_loader, device, criterion) 
+            val_accuracies.append(val_acc)
             
-            log_to_wandb_fedavg(round=round, client_avg_loss = avg_loss, client_avg_accuracy= client_avg_accuracy_for_log, server_test_accuracy=test_acc, server_test_loss=test_loss)
+            log_to_wandb_fedavg(round=round, client_avg_loss = avg_loss, client_avg_accuracy= client_avg_accuracy_for_log, server_val_accuracy=val_acc, server_val_loss=val_loss)
             # --- Save checkpoint ---
             # checkpoint_path = os.path.join(checkpoint_dir, f"{model_name}_checkpointFINAL.pth")
             save_checkpoint_fedavg(
@@ -212,24 +213,24 @@ def train_server(model,
                 model=model,
                 optimizer=optimizer,
                 avg_client_loss=avg_loss, # Loss from the current round
-                test_loss=test_loss, # Test loss from the current round
+                val_loss=val_loss, # Val loss from the current round
                 checkpoint_path=checkpoint_path
             )
 
             print(f"\nRound {round+1}/{num_rounds}")
             print(f"Selected Clients: {idx_clients}")
             print(f"Avg Client Loss: {avg_loss:.4f} | Avg Client Accuracy: {sum(client_accuracies)/len(client_accuracies):.2f}%")
-            print(f"Evaluation Loss: {test_loss:.4f} | Test Accuracy: {test_acc:.2f}%")
+            print(f"Evaluation Loss:{val_loss:.4f} | Val Accuracy: {val_acc:.2f}%")
             print("-" * 50)
 
     return {
         'model': model,
         'train_losses': train_losses,
-        'test_accuracies': test_accuracies,
+        'val_accuracies': val_accuracies,
         'selected_clients': selected_clients_history
     }
 
-def val(model, test_loader, device, criterion):
+def val(model, val_loader, device, criterion):
     # DOMANDA : bisogna testare la copia del modello sui singoli client?
 
     # copia del modello nell'evaluation, altrimenti facendo model.eval() si metterebbe tutto il modello in .eval() 
@@ -240,7 +241,7 @@ def val(model, test_loader, device, criterion):
     total = 0
 
     with torch.no_grad():  # Disable gradient calculation
-        for images, labels in test_loader:
+        for images, labels in val_loader:
             images, labels = images.to(device), labels.to(device)
 
             outputs = local_model(images)
@@ -257,11 +258,17 @@ def val(model, test_loader, device, criterion):
     return avg_loss, accuracy
 
 
-def log_to_wandb_fedavg(round, client_avg_loss, client_avg_accuracy, server_test_loss, server_test_accuracy):
+####### LOGICA DEL FEDAVG CON MODEL EDITING 
+
+## di che cosa abbiamo bisogno per la maschera?
+# abbiamo deciso che ogni client calcola la sua maschera
+# 
+
+def log_to_wandb_fedavg(round, client_avg_loss, client_avg_accuracy, server_val_loss, server_val_accuracy):
     wandb.log({
         "client_avg_loss": client_avg_loss,
         "client_avg_accuracy": client_avg_accuracy,
-        "server_test_loss": server_test_loss,
-        "server_test_accuracy": server_test_accuracy,
+        "server_val_loss": server_val_loss,
+        "server_val_accuracy": server_val_accuracy,
         "round":round
     }, step=round)
