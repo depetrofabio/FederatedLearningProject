@@ -537,7 +537,7 @@ def compute_mask(model, dataloader, sparsity_target=0.9, R=5, soft_zero=0.1, num
     local_model.freeze(0)
 
     # requires_grade False for head, norm, token, embedding
-    for name, param in model.named_parameters():
+    for name, param in local_model.named_parameters():
         if 'embed' in name or 'cls_token' in name or 'backbone.norm' in name or 'head' in name:
             param.requires_grad = False
 
