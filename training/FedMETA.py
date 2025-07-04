@@ -3,7 +3,7 @@ import torch.nn as nn
 import copy
 from typing import List, Dict
 from torch.utils.data import DataLoader
-import numpy
+import numpy as np
 import itertools
 from FederatedLearningProject.training.model_editing import compute_mask, SparseSGDM
 
@@ -157,16 +157,20 @@ def train_server(model,
                  num_clients=100, 
                  num_client_steps=4,
                  frac=0.1,
-                 criterion=nn.CrossEntropyLoss,
+                 criterion=nn.CrossEntropyLoss(),
                  batch_size=64,
                  debug = False, # Added checkpoint_dir="/content/drive/MyDrive/FL/FederatedLearningProject/checkpoints"
                  model_name="dino_vits16"): # Added
     train_losses = []
     val_accuracies = []
     selected_clients_history = []
+    aggregated_model = model   # the aggregated model is initialized as the original model
+    generator = torch.Generator()
+    generator.manual_seed(42)
+
 
     for round in range(num_rounds):
-        client_models = [] # lista di modelli 
+        delta_list = [] # lista di modelli 
         client_losses = [] 
         client_accuracies = []
         client_sizes = [] 
@@ -176,28 +180,28 @@ def train_server(model,
         selected_clients_history.append(idx_clients)
 
         for client_idx in idx_clients:
-            client_loader = DataLoader(client_dataset[client_idx], batch_size=batch_size, shuffle=True) 
+
+            client_loader = DataLoader(client_dataset[client_idx], batch_size=batch_size, shuffle=True, generator=generator) 
             client_size = len(client_dataset[client_idx])
             client_sizes.append(client_size)
             
-            TASK_VECTORS ... , client_loss, client_accuracy, = train_client(
+            delta, client_loss, client_accuracy, = train_client(
                 model=model,
                 client_loader=client_loader,
                 optimizer_config = optimizer_config,
                 client_mask = client_masks[client_idx],
                 num_local_steps=num_client_steps,
                 device=device,
-                criterion=criterion,
-                debug = debug,
+                criterion=criterion
             )
 
             ### dizionario con key = layer modello, values = (indice dentro al tensore e il valore del parametro). Tupla con dentro due liste. 
-            client_models.append(client_model.state_dict())
+            delta_list.append(delta)
             client_losses.append(client_loss)
             client_accuracies.append(client_accuracy)   
 
-        updated_weights = average_weights(client_models, client_sizes)
-        model.load_state_dict(updated_weights)
+        ### UPDATE SERVER MODEL WITH NEW LOGIC
+        aggregated_model = aggregate_with_task_arithmetic(delta_list, aggregated_model)
 
         avg_loss = sum(client_losses) / len(client_losses)
 
@@ -226,10 +230,8 @@ def train_server(model,
         'selected_clients': selected_clients_history
     }
 
+# util for train server
 def val(model, val_loader, device, criterion):
-    # DOMANDA : bisogna testare la copia del modello sui singoli client?
-
-    # copia del modello nell'evaluation, altrimenti facendo model.eval() si metterebbe tutto il modello in .eval() 
     local_model = copy.deepcopy(model) 
     local_model.eval()  
     total_loss = 0.0
@@ -295,7 +297,7 @@ def aggregate_masks(local_masks, threshold_ratio=0.8):
 
 
 ##### PARAMETER PARTITION FUNCTION #####
-def distribution_function(final_mask, unmasked_params, number_clients):
+def distribution_function(final_mask, number_clients):
     '''
     final_mask: dict of tensors with 1s and 0s (global mask)
     unmasked_params: total number of 1s in final_mask
@@ -306,7 +308,8 @@ def distribution_function(final_mask, unmasked_params, number_clients):
                       each element is a dict (same keys as final_mask)
                       with 1s in unique positions (disjoint among clients)
     '''
-    total_params = sum(m.numel() for m in final_mask.values()) # .values returns iterable
+
+    _, _, unmasked_params =  count_masked_params(final_mask)
     #print(f"Totale parametri in final_mask: {total_params}")
 
     base_params_per_client = unmasked_params // number_clients
@@ -350,3 +353,20 @@ def distribution_function(final_mask, unmasked_params, number_clients):
 
     return client_masks # lista di maschere dei client (lista di dizionari)
 
+## util for distribution_function
+# conta i parameteri totali - masked - non masked
+def count_masked_params(mask):
+    total_params = 0
+    masked_params = 0
+
+    for key, mask_tensor in mask.items():
+        total_params += mask_tensor.numel()          # total number of elements in this parameter
+        masked_params += (mask_tensor == 0).sum().item()  # count how many elements are zero (masked)
+
+    unmasked_params = total_params - masked_params
+
+    print(f"Total parameters: {total_params}")
+    print(f"Masked parameters (zeros): {masked_params}")
+    print(f"Unmasked parameters (ones): {unmasked_params}")
+
+    return total_params, masked_params, unmasked_params
