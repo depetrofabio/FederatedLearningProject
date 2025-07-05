@@ -164,7 +164,6 @@ def train_server(model,
     train_losses = []
     val_accuracies = []
     selected_clients_history = []
-    aggregated_model = model   # the aggregated model is initialized as the original model
     generator = torch.Generator()
     generator.manual_seed(42)
 
@@ -201,7 +200,7 @@ def train_server(model,
             client_accuracies.append(client_accuracy)   
 
         ### UPDATE SERVER MODEL WITH NEW LOGIC
-        aggregated_model = aggregate_with_task_arithmetic(delta_list, aggregated_model)
+        model = aggregate_with_task_arithmetic(delta_list, model)
 
         avg_loss = sum(client_losses) / len(client_losses)
 
@@ -292,6 +291,77 @@ def aggregate_masks(local_masks, threshold_ratio=0.8):
         name: (agg_mask[name] >= threshold)
         for name in agg_mask
     }
+
+    return final_mask
+
+# NEW VERSION
+def aggregate_masks_by_sparsity(
+    local_masks: List[Dict[str, torch.Tensor]],
+    sparsity_target: float
+) -> Dict[str, torch.Tensor]:
+    """
+    Aggrega le maschere locali per creare una maschera globale che raggiunge
+    un obiettivo di sparsità specifico, calcolando la soglia tramite quantile.
+
+    Args:
+        local_masks (List[Dict[str, torch.Tensor]]): Lista di maschere locali.
+            Si assume che ogni maschera nel dizionario abbia le stesse chiavi.
+        sparsity_target (float): La frazione desiderata di parametri da mascherare
+            (es. 0.9 per il 90% di zeri).
+
+    Returns:
+        Dict[str, torch.Tensor]: La maschera globale finale con la sparsità desiderata.
+    """
+    if not local_masks:
+        raise ValueError("La lista delle maschere locali è vuota!")
+    if not (0.0 <= sparsity_target < 1.0):
+        raise ValueError("Sparsity target deve essere compreso tra [0.0, 1.0)")
+
+    # --- Somma i "voti" da tutte le maschere locali (logica originale) ---
+    # Inizializza l'accumulatore a zeri interi, usando le chiavi della prima maschera
+    # come riferimento (assumendo che tutte le maschere abbiano le stesse chiavi).
+    agg_mask_votes = {
+        name: torch.zeros_like(mask, dtype=torch.int32)
+        for name, mask in local_masks[0].items()
+    }
+
+    # Somma i valori booleani (True=1, False=0) di ogni maschera locale.
+    for client_mask in local_masks:
+        for name in agg_mask_votes:
+            agg_mask_votes[name] += client_mask[name].int()
+
+    # --- Trova la soglia dinamica tramite quantile ---
+    # Raccogli tutti i valori di voto da tutti i layer in un unico tensore 1D.
+    all_votes = torch.cat([votes.flatten() for votes in agg_mask_votes.values()])
+    
+    total_params = all_votes.numel()
+    
+    # Calcola quanti parametri devono rimanere attivi (non mascherati).
+    num_to_keep = max(1, int(total_params * (1.0 - sparsity_target)))
+
+    if num_to_keep >= total_params:
+        # Se la sparsità è 0, teniamo tutti i parametri con almeno un voto.
+        threshold = 1
+    else:
+        # Ordina i voti in ordine decrescente e trova il valore di soglia.
+        # Il valore del k-esimo elemento più grande diventa la nostra soglia.
+        # num_to_keep - 1 perché gli indici partono da 0.
+        threshold = torch.sort(all_votes, descending=True).values[num_to_keep - 1]
+    
+    print(f"Sparsity Target: {sparsity_target:.2f} -> Keeping {num_to_keep}/{total_params} params.")
+    print(f"Calculated Threshold (min votes to be kept): {threshold.item()}")
+
+    # --- Crea la maschera finale usando la soglia calcolata ---
+    # Un parametro viene tenuto (maschera = 1) se il suo numero di voti è >= della soglia.
+    final_mask = {
+        name: (votes >= threshold)      # broadcasting
+        for name, votes in agg_mask_votes.items()
+    }
+    
+    # Verifica la sparsità effettiva ottenuta (dovrebbe essere molto vicina al target)
+    final_kept = sum((m.sum().item() for m in final_mask.values()))
+    final_sparsity = 1.0 - (final_kept / total_params) if total_params > 0 else 0
+    print(f"Achieved Sparsity: {final_sparsity:.4f}")
 
     return final_mask
 
