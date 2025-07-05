@@ -9,9 +9,20 @@ def save_checkpoint(epoch, model, optimizer, scheduler, train_loss, val_loss, ch
         "epoch": epoch,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
-        "scheduler_state_dict": scheduler.state_dict(),  
+        "scheduler_state_dict": scheduler.state_dict(),
         "train_loss": train_loss,
         "val_loss": val_loss,
+    }, checkpoint_path)
+    print(f"Checkpoint salvato su: {checkpoint_path}")
+
+def save_checkpoint_test(epoch, model, optimizer, scheduler, train_loss, test_loss, checkpoint_path):
+    torch.save({
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict(),
+        "train_loss": train_loss,
+        "test_loss": test_loss,
     }, checkpoint_path)
     print(f"Checkpoint salvato su: {checkpoint_path}")
 
@@ -30,7 +41,7 @@ def load_checkpoint(model, optimizer, scheduler, checkpoint_dir="/content/drive/
         start_epoch: The epoch number to resume training from.
         checkpoint_data: A dictionary containing the checkpoint informantions
     """
-    
+
     os.makedirs(checkpoint_dir, exist_ok=True)
     checkpoint_path = os.path.join(checkpoint_dir, f"{model_name}_checkpoint.pth")
 
@@ -52,7 +63,7 @@ def save_checkpoint_fedavg(round, model, optimizer, avg_client_loss, test_loss, 
     torch.save({
         "round": round,
         "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),  
+        "optimizer_state_dict": optimizer.state_dict(),
         "avg_client_loss": avg_client_loss,
         "test_server_loss": test_loss,
     }, checkpoint_path)
@@ -73,10 +84,10 @@ def load_checkpoint_fedavg(model, optimizer, run_name = False, checkpoint_dir="/
         checkpoint_data: A dictionary containing the checkpoint informantions
     """
 
-    if not run_name: 
+    if not run_name:
         print(f"\nSpecify the model name you want to load \nnothing was done ")
         return
-    
+
     os.makedirs(checkpoint_dir, exist_ok=True)
     checkpoint_path = os.path.join(checkpoint_dir, f"{run_name}_checkpoint.pth")
 
@@ -92,4 +103,3 @@ def load_checkpoint_fedavg(model, optimizer, run_name = False, checkpoint_dir="/
         print(" Nessun checkpoint trovato, inizio da round 1.")
 
     return start_round, checkpoint_data
-
