@@ -213,6 +213,8 @@ def train_server(model,
             val_loss, val_acc = val(model, val_loader, device, criterion) 
             val_accuracies.append(val_acc)
             
+            log_to_wandb_fedavg(round=round, client_avg_loss = avg_loss, client_avg_accuracy= client_avg_accuracy_for_log, server_val_accuracy=val_acc, server_val_loss=val_loss)
+
             # --- Save checkpoint ---
             # checkpoint_path = os.path.join(checkpoint_dir, f"{model_name}_checkpointFINAL.pth")
 
@@ -440,3 +442,13 @@ def count_masked_params(mask):
     print(f"Unmasked parameters (ones): {unmasked_params}")
 
     return total_params, masked_params, unmasked_params
+
+
+def log_to_wandb_fedavg(round, client_avg_loss, client_avg_accuracy, server_val_loss, server_val_accuracy):
+    wandb.log({
+        "client_avg_loss": client_avg_loss,
+        "client_avg_accuracy": client_avg_accuracy,
+        "server_val_loss": server_val_loss,
+        "server_val_accuracy": server_val_accuracy,
+        "round":round
+    }, step=round)
