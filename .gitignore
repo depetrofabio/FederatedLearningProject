@@ -1,3 +1,5 @@
 desktop.ini
 __pycache__/
 *.py[cod]
+masks.ink
+checkpoints.ink
