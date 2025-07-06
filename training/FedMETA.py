@@ -5,6 +5,7 @@ from typing import List, Dict
 from torch.utils.data import DataLoader
 import numpy as np
 import itertools
+import wandb
 from FederatedLearningProject.training.model_editing import compute_mask, SparseSGDM
 
 ###### TASK AGGREGATION FUNCTION ######
@@ -178,6 +179,10 @@ def train_server(model,
         idx_clients = np.random.choice(range(num_clients), m, replace=False) 
         selected_clients_history.append(idx_clients)
 
+        print(f"\n--- Round {round+1}/{num_rounds} ---") # Added for clarity
+
+
+
         for client_idx in idx_clients:
 
             client_loader = DataLoader(client_dataset[client_idx], batch_size=batch_size, shuffle=True, generator=generator) 
@@ -193,6 +198,16 @@ def train_server(model,
                 device=device,
                 criterion=criterion
             )
+
+             # --- START: Added for debugging ---
+            # Calculate the L2 norm of the client update (delta)
+            l2_norm = 0.0
+            with torch.no_grad():
+                for name in delta:
+                    l2_norm += torch.norm(delta[name].float(), p=2).item() ** 2
+            l2_norm = l2_norm ** 0.5
+            print(f"  Client {client_idx}: Update L2 Norm = {l2_norm:.4f}")
+            # --- END: Added for debugging ---
 
             ### dizionario con key = layer modello, values = (indice dentro al tensore e il valore del parametro). Tupla con dentro due liste. 
             delta_list.append(delta)
