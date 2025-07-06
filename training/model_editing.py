@@ -1,3 +1,4 @@
+model_editing.py
 import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
@@ -592,3 +593,100 @@ def compute_mask(model, dataloader, sparsity_target=0.9, R=5, soft_zero=0.1, num
             plot_all_layers_mask_sparsity(final_mask)
 
     return final_mask
+
+
+#-------------------------------------------------------------------------------
+# COMPUTE MASK: LOOP OVER THE CLIENTS WITH THE MODEL IN INPUT FOR THE CLIENT_MASK LIST COMPUTATION
+
+def compute_mask_clients(model,
+                         client_dataset,
+                         num_classes,
+                         n_per_class,
+                         batch_size=128,
+                         final_sparsity=0.9,
+                         tot_rounds=10,
+                         soft_zero=0.01,
+                         num_examples=25,
+                         debug = False):
+
+  client_masks = [] 
+  for i in range(len(client_dataset)):
+    client_loader = DataLoader(client_dataset[i], batch_size=128, shuffle=True, num_workers=2)
+
+    if debug:
+      print_info_dataloader(client_loader)
+
+    stratified_loader = get_n_examples_per_class_loader(client_loader, num_classes=num_classes, n_per_class=n_per_class) # num_classes * n_per_class to be constant
+    if debug:
+      print_info_dataloader(stratified_loader)
+
+    start = time.time()
+    mask = compute_mask(model, stratified_loader, sparsity_target=final_sparsity, R=tot_rounds, num_examples=num_examples, soft_zero=soft_zero, device='cuda', enable_plot=0, debug=False) # num_examples=None : sfoglia tutto il dataset passato in ingresso (già ridotto)
+    end = time.time()
+    
+    if debug:
+      plot_all_layers_mask_sparsity(mask)
+      plot_qkv_weight_bias_sparsity(mask)
+      print(f"Mask computation time: {end-start}")
+      print(f"Sparsity target: {final_sparsity}")
+      print(f"Soft Zero Value: {soft_zero}")
+      print(f"Rounds: {tot_rounds}")
+      print(f"Num_examples: {num_examples}")
+
+    client_masks.append(mask)
+
+  return client_masks
+
+#-------------------------------------------------------------------------------
+# CONVERT FLOAT MASK TO A BOOLEAN ONE (SAVING MEMORY)
+def convert_float_masks_to_bool(masks_list):
+    """
+    Convert a list of float masks (dicts) to boolean masks.
+
+    Args:
+        masks_list (list of dict): Each dict maps name -> float tensor (with 0.0/1.0).
+
+    Returns:
+        list of dict: Each dict maps name -> bool tensor.
+    """
+    bool_masks = []
+    for client_mask in masks_list:
+        bool_mask = {name: p.bool() for name, p in client_mask.items()}
+        bool_masks.append(bool_mask)
+    return bool_masks
+
+#-------------------------------------------------------------------------------
+# COMPARE LISTS OF MASKS 
+def compare_mask_lists(float_masks_list: list, bool_masks_list: list):
+    """
+    Confronta due liste di maschere float e bool.
+
+    Args:
+        float_masks_list: lista di dict {name: tensor(float)}
+        bool_masks_list: lista di dict {name: tensor(bool)}
+
+    Stampa quali maschere non combaciano per ogni elemento della lista.
+    """
+    if len(float_masks_list) != len(bool_masks_list):
+        print("⚠️ Attenzione: le due liste hanno lunghezze diverse!")
+        return
+
+    for idx, (float_mask, bool_mask) in enumerate(zip(float_masks_list, bool_masks_list)):
+        mismatches = []
+
+        for name in float_mask:
+            if name not in bool_mask:
+                print(f"[Elemento {idx}] Parametro '{name}' non trovato nella maschera booleana.")
+                continue
+
+            f_tensor = float_mask[name]
+            b_tensor = bool_mask[name]
+
+            if not torch.equal(f_tensor.bool(), b_tensor):
+                mismatches.append(name)
+
+        if not mismatches:
+            print(f"[Elemento {idx}] ✅ Tutti i parametri combaciano!")
+        else:
+            print(f"[Elemento {idx}] ⚠️ Mismatch in {len(mismatches)} parametri: {mismatches}")
+
