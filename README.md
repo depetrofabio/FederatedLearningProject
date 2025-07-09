@@ -13,17 +13,17 @@ federated-model-editing/
 │   └── cifar100_loader.py          # CIFAR-100 dataset loading and preprocessing
 │
 ├── 📁 training/                  
-│   ├── FL_training.py                # Federated learning pipeline (FedAvg)
-│   ├── centralized_training.py       # Centralized training baseline
-│   └── FedMETA.py                    # Federated model editing with meta-learning
+│   ├── FL_training.py                # Federated Averaging functions 
+│   ├── centralized_training.py       # Centralized training functions
+│   └── FedMETA.py                    # Federated model editing with TaLoS functions
 │
 ├── 📁 experiments/                 
 │   ├── baseline_centralized.ipynb    # Centralized training experiment
-│   ├── baseline_federated.ipynb      # Federated (FedAvg) experiment
-│   ├── model_editing.ipynb           # Sparse fine-tuning and model merging (centralized)
-│   ├── federated_model_editing.ipynb # Federated model editing experiments
-│   └── FedMETA.ipynb                 # FedMETA evaluation and results      
-│   └── models.py                     
+│   ├── baseline_federated.ipynb      # FedAvg experiment
+│   ├── model_editing.ipynb           # TaLoS (centralized)
+│   ├── federated_model_editing.ipynb # FedAvg + TaLoS
+│   └── FedMETA.ipynb                 # Free part notebook
+│   └── models.py                     # models
 ├── 📁 checkpoints/                 
 │   ├── checkpointing.py              # Model checkpoint saving/loading
 │
