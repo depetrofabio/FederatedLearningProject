@@ -22,8 +22,8 @@ federated-model-editing/
 │   ├── baseline_federated.ipynb      # Federated (FedAvg) experiment
 │   ├── model_editing.ipynb           # Sparse fine-tuning and model merging (centralized)
 │   ├── federated_model_editing.ipynb # Federated model editing experiments
-│   └── FedMETA.ipynb                 # FedMETA evaluation and results
-│
+│   └── FedMETA.ipynb                 # FedMETA evaluation and results      
+│   └── models.py                     
 ├── 📁 checkpoints/                 
 │   ├── checkpointing.py              # Model checkpoint saving/loading
 │
