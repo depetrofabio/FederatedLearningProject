@@ -9,21 +9,25 @@ The repository is organized as follows:
 ```text
 federated-model-editing/
 │
-├── 📁 data/                      # Dataset loaders and preprocessors
-│   └── cifar100_loader.py
+├── 📁 data/                         # Dataset loaders and preprocessing utilities
+│   └── cifar100_loader.py          # CIFAR-100 loading and preprocessing
 │
-├── 📁 training/
-│   ├── FL_training.py
-│   └── centralized_training.py
+├── 📁 training/                     # Training pipelines
+│   ├── FL_training.py              # Standard FedAvg implementation
+│   ├── centralized_training.py     # Centralized training baseline
+│   └── FedMETA.py                  # Federated model editing via meta-learning
 │
-├── 📁 experiments/
-│   ├── baseline_centralized.ipynb   # Colab for centralized training
-│   ├── baseline_federated.ipynb     # Colab for FL (FedAvg)
-│   └── model_editing.ipynb          # Colab for sparse fine-tuning + model merging
+├── 📁 experiments/                 # Colab notebooks for reproducibility
+│   ├── baseline_centralized.ipynb  # Centralized training experiment
+│   ├── baseline_federated.ipynb    # Federated (FedAvg) experiment
+│   ├── model_editing.ipynb         # Sparse fine-tuning + model merging
+│   └── FedMETA.ipynb               # FedMETA evaluation and experiments
 │
-├── 📁 checkpoints/
-│   ├── checkpointing.py        # Save/load models
-│   └── logger.py               # Logging experiments (e.g., CSV, WandB, etc.)
+├── 📁 checkpoints/                 # Model saving and logging
+│   ├── best_model.pth              # Final or best-performing model checkpoint
+│   ├── checkpointing.py            # Save/load model state dictionaries
+│   └── logger.py                   # Logging utility (CSV, WandB, etc.)
 │
-├── README.md                    # Project documentation (this file)
-└── main.py                      # CLI wrapper to run training/evaluation
+└── 📄 README.md                    # This file
+
+
